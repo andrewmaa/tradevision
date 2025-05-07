@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import StockChart from "./StockChart";
+import { API_BASE_URL } from '../app/api/stock-service';
 
 interface AnalyzeStockProps {
   searchValue: string;
@@ -87,13 +88,15 @@ export default function AnalyzeStock({ searchValue }: AnalyzeStockProps) {
     setResult(null);
 
     try {
-      const response = await fetch("http://localhost:5001/analyze", {
+      console.log('Making request to:', `${API_BASE_URL}/analyze`); // Debug log
+      const response = await fetch(`${API_BASE_URL}/analyze`, {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
           "Accept": "application/json"
         },
-        credentials: "include",
+        mode: 'cors',  // Explicitly set CORS mode
+        credentials: 'omit',  // Don't send credentials
         body: JSON.stringify({ 
           symbols: searchValue,
           force_refresh: forceRefresh 
@@ -101,7 +104,8 @@ export default function AnalyzeStock({ searchValue }: AnalyzeStockProps) {
       });
 
       if (!response.ok) {
-        throw new Error("API error: " + response.statusText);
+        const errorText = await response.text();
+        throw new Error(`API error: ${response.status} ${response.statusText} - ${errorText}`);
       }
 
       const data = await response.json();

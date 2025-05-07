@@ -17,6 +17,7 @@ import nltk
 import tempfile
 import logging
 import sys
+from curl_cffi import requests as curl_requests
 
 # Configure logging
 logging.basicConfig(
@@ -184,12 +185,34 @@ def get_financial_data(ticker_symbol, period="1mo"):
     Fetching financial data of a company
     """
     try:
-        company = yf.Ticker(ticker_symbol)
+        # Create a session with Chrome impersonation using curl_requests
+        session = curl_requests.Session(
+            impersonate="chrome110",
+            timeout=30,
+            verify=True
+        )
+        
+        # Configure headers to mimic a real browser
+        session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Connection': 'keep-alive',
+        })
+
+        print("DEBUG: Creating Ticker with session")
+        company = yf.Ticker(ticker_symbol, session=session)
+        
+        print("DEBUG: Fetching historical data")
         hist = company.history(period=period)
+        print("DEBUG: Historical data:", hist)
 
         if hist.empty:
             print(f"No historical data found for {ticker_symbol}")
-            return {}
+            return {
+                "ticker": ticker_symbol,
+                "error": f"No historical data found for {ticker_symbol}"
+            }
 
         # daily metrics
         latest = hist.iloc[-1]
@@ -226,10 +249,16 @@ def get_financial_data(ticker_symbol, period="1mo"):
         print("DEBUG: Financial data structure:", json.dumps(data, indent=2))
         return data
     except Exception as e:
+        import traceback
         print(f"Error retrieving financial data: {e}")
         print(f"Error type: {type(e)}")
         print(f"Error details: {str(e)}")
-        return {}
+        print("Full traceback:")
+        print(traceback.format_exc())
+        return {
+            "ticker": ticker_symbol,
+            "error": f"Error retrieving financial data: {str(e)}"
+        }
 
 """# NewsAPI"""
 
@@ -252,14 +281,6 @@ def get_news_and_extract_keywords(company_name, ticker_symbol=None, days=2, max_
     from newspaper import Article
     import nltk
 
-
-    # Download NLTK resources (run once)
-    # nltk.download('vader_lexicon')
-    # nltk.download('punkt')
-    # nltk.download('punkt_tab')
-    # nltk.download('averaged_perceptron_tagger')
-    # nltk.download('maxent_ne_chunker')
-    # nltk.download('words')
 
     # Load NLP models
     nlp = spacy.load("en_core_web_lg")
@@ -561,9 +582,9 @@ def expand_keywords_and_generate_queries(keywords, company_name, industry):
     """
 
     try:
-        client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))  # or pass directly
+        client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
         response = client.chat.completions.create(
-            model="gpt-4",  # or "gpt-3.5-turbo"
+            model="gpt-4",
             messages=[
                 {"role": "system", "content": "You are a helpful assistant that expands keywords and generates search queries."},
                 {"role": "user", "content": prompt.strip()}
@@ -865,7 +886,7 @@ print(get_alpha_vantage_trending())'''
 import yfinance as yf
 
 def get_company_description_from_yf(ticker):
-    stock = yf.Ticker(ticker)
+    stock = yf.Ticker(ticker, session=session)
     return stock.info.get('longName', 'No description available')
 
 '''print(get_company_description_from_yf("AAPL"))'''
@@ -877,6 +898,29 @@ def json_serial(obj):
     if isinstance(obj, (datetime, date)):
         return obj.isoformat()
     raise TypeError("Type %s not serializable" % type(obj))
+
+def flatten_nested_dict(d, parent_key='', sep='.'):
+    """
+    Flatten a nested dictionary with custom separator and handle complex data types
+    """
+    items = []
+    for k, v in d.items():
+        new_key = f"{parent_key}{sep}{k}" if parent_key else k
+        if isinstance(v, dict):
+            # Special handling for historical_data to store as JSON
+            if k == 'historical_data':
+                items.append((new_key, json.dumps(v, default=json_serial)))
+            else:
+                items.extend(flatten_nested_dict(v, new_key, sep=sep).items())
+        elif isinstance(v, (list, tuple)):
+            # Convert lists and tuples to JSON strings
+            items.append((new_key, json.dumps(v, default=json_serial)))
+        elif isinstance(v, (datetime, date)):
+            # Convert datetime objects to ISO format strings
+            items.append((new_key, v.isoformat()))
+        else:
+            items.append((new_key, v))
+    return dict(items)
 
 def run_pipeline(ticker, force_refresh=False):
     from datetime import datetime, timedelta, timezone
@@ -986,14 +1030,18 @@ def run_pipeline(ticker, force_refresh=False):
     # Step 2: Get financial data
     pipeline_steps.append({"step": "Fetching financial data", "status": "running"})
     financial_data = get_financial_data(ticker, period="1mo")
-    if not financial_data:
+    
+    # Check for error in financial data
+    if "error" in financial_data:
         pipeline_steps[-1]["status"] = "error"
-        pipeline_steps[-1]["message"] = f"Failed to fetch financial data for {ticker}"
+        pipeline_steps[-1]["message"] = financial_data["error"]
         return {
             "company_info": company_info,
+            "financial_data": financial_data,
             "pipeline_steps": pipeline_steps,
-            "error": f"Failed to fetch financial data for {ticker}"
+            "error": financial_data["error"]
         }
+        
     pipeline_steps[-1]["status"] = "completed"
     pipeline_steps[-1]["message"] = "Got financial data"
 
@@ -1083,28 +1131,15 @@ def run_pipeline(ticker, force_refresh=False):
 
 app = Flask(__name__)
 
-# Get the allowed origins from environment variable or use defaults
-allowed_origins = os.getenv('ALLOWED_ORIGINS', 'http://localhost:3000,https://tradevision.vercel.app').split(',')
-
 # Configure CORS
 CORS(app, 
      resources={r"/*": {
-         "origins": allowed_origins,
+         "origins": ["https://tradevision-kappa.vercel.app", "http://localhost:3000"],
          "methods": ["GET", "POST", "OPTIONS"],
-         "allow_headers": ["Content-Type", "Authorization"],
-         "supports_credentials": True
-     }},
-     supports_credentials=True)
-
-@app.after_request
-def after_request(response):
-    origin = request.headers.get('Origin')
-    if origin in allowed_origins:
-        response.headers.add('Access-Control-Allow-Origin', origin)
-    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
-    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
-    response.headers.add('Access-Control-Allow-Credentials', 'true')
-    return response
+         "allow_headers": ["Content-Type", "Authorization", "Accept"],
+         "supports_credentials": False,
+         "expose_headers": ["Content-Type", "Authorization"]
+     }})
 
 @app.route('/health', methods=['GET'])
 def health_check():
@@ -1139,47 +1174,73 @@ def health_check():
 def test():
     return jsonify({"status": "ok", "message": "Backend is working"})
 
+@app.route('/test/yf/<ticker>', methods=['GET'])
+def test_yf(ticker):
+    """Test endpoint for Yahoo Finance data"""
+    try:
+        data = get_financial_data(ticker, period="1mo")
+        return jsonify({
+            "status": "success",
+            "data": data
+        })
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "error": str(e)
+        }), 500
+
 @app.route('/analyze', methods=['POST', 'OPTIONS'])
 def analyze():
     if request.method == "OPTIONS":
         return make_response(jsonify({"status": "ok"}), 200)
     
-    data = request.get_json()
-    symbols_string = data.get('symbols')
-    force_refresh = data.get('force_refresh', False)
-
-    if not symbols_string:
-        return jsonify({"error": "No symbols provided"}), 400
-
-    symbols = [s.strip().upper() for s in symbols_string.split(',')]
-    output_results = {}
-
-    for symbol in symbols:
-        try:
-            # Run pipeline and update steps
-            raw_result = run_pipeline(symbol, force_refresh=force_refresh)
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
             
-            # Check if there's an error in the result
-            has_error = "error" in raw_result
-            
-            # Update the response with the final result
-            output_results[symbol] = {
-                "result": raw_result,
-                "status": "error" if has_error else "completed",
-                "pipeline_steps": raw_result.get("pipeline_steps", [])
-            }
-            
-        except Exception as e:
-            output_results[symbol] = {
-                "error": str(e),
-                "status": "error",
-                "pipeline_steps": []
-            }
+        symbols_string = data.get('symbols')
+        force_refresh = data.get('force_refresh', False)
 
-    return jsonify({
-        "message": "Pipeline completed.",
-        "results": output_results
-    })
+        if not symbols_string:
+            return jsonify({"error": "No symbols provided"}), 400
+
+        symbols = [s.strip().upper() for s in symbols_string.split(',')]
+        output_results = {}
+
+        for symbol in symbols:
+            try:
+                # Run pipeline and update steps
+                raw_result = run_pipeline(symbol, force_refresh=force_refresh)
+                
+                # Check if there's an error in the result
+                has_error = "error" in raw_result
+                
+                # Update the response with the final result
+                output_results[symbol] = {
+                    "result": raw_result,
+                    "status": "error" if has_error else "completed",
+                    "pipeline_steps": raw_result.get("pipeline_steps", [])
+                }
+                
+            except Exception as e:
+                print(f"Error processing symbol {symbol}: {str(e)}")
+                output_results[symbol] = {
+                    "error": str(e),
+                    "status": "error",
+                    "pipeline_steps": []
+                }
+
+        return jsonify({
+            "message": "Pipeline completed.",
+            "results": output_results
+        })
+    except Exception as e:
+        print(f"Error in analyze endpoint: {str(e)}")
+        return jsonify({
+            "error": f"Internal server error: {str(e)}",
+            "status": "error"
+        }), 500
 
 # Error handlers
 @app.errorhandler(404)

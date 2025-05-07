@@ -26,11 +26,26 @@ export interface StockData {
   }[]
 }
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api"
+// API base URL from environment variable
+export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL 
+  ? (process.env.NEXT_PUBLIC_API_URL.startsWith('http') 
+      ? process.env.NEXT_PUBLIC_API_URL 
+      : `https://${process.env.NEXT_PUBLIC_API_URL}`)
+  : "http://localhost:5001";
+
+console.log('API_BASE_URL:', API_BASE_URL); // Debug log
+
+const fetchOptions = {
+  credentials: 'include' as const,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+};
 
 export async function searchStocks(query: string): Promise<StockSearchResult[]> {
   try {
-    const response = await fetch(`${API_BASE_URL}/search?q=${encodeURIComponent(query)}`)
+    console.log('Searching stocks with URL:', `${API_BASE_URL}/search?q=${encodeURIComponent(query)}`); // Debug log
+    const response = await fetch(`${API_BASE_URL}/search?q=${encodeURIComponent(query)}`, fetchOptions)
     if (!response.ok) {
       throw new Error("Failed to search stocks")
     }
@@ -44,7 +59,8 @@ export async function searchStocks(query: string): Promise<StockSearchResult[]> 
 
 export async function getStockData(symbol: string): Promise<StockData | null> {
   try {
-    const response = await fetch(`${API_BASE_URL}/stock/${encodeURIComponent(symbol)}`)
+    console.log('Getting stock data with URL:', `${API_BASE_URL}/stock/${encodeURIComponent(symbol)}`); // Debug log
+    const response = await fetch(`${API_BASE_URL}/stock/${encodeURIComponent(symbol)}`, fetchOptions)
     if (!response.ok) {
       throw new Error(`Failed to get data for ${symbol}`)
     }
@@ -58,7 +74,8 @@ export async function getStockData(symbol: string): Promise<StockData | null> {
 export async function getMultipleStocks(symbols: string[]): Promise<StockData[]> {
   try {
     const symbolsParam = symbols.join(",")
-    const response = await fetch(`${API_BASE_URL}/stocks?symbols=${encodeURIComponent(symbolsParam)}`)
+    console.log('Getting multiple stocks with URL:', `${API_BASE_URL}/stocks?symbols=${encodeURIComponent(symbolsParam)}`); // Debug log
+    const response = await fetch(`${API_BASE_URL}/stocks?symbols=${encodeURIComponent(symbolsParam)}`, fetchOptions)
     if (!response.ok) {
       throw new Error("Failed to get multiple stocks")
     }
