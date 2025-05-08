@@ -243,13 +243,8 @@ def get_financial_data(ticker_symbol, period="1mo"):
         company = yf.Ticker(ticker_symbol, session=session)
         
         print("DEBUG: Fetching historical data")
-        # Use a longer period to ensure we have enough data
-        hist = company.history(period="2mo", interval="1d")
-        print("DEBUG: Historical data shape:", hist.shape)
-        print("DEBUG: Historical data columns:", hist.columns)
-        print("DEBUG: Historical data index:", hist.index)
-        print("DEBUG: Historical data sample:", hist.head())
-        print("DEBUG: Last 5 dates:", hist.index[-5:])
+        hist = company.history(period=period)
+        print("DEBUG: Historical data:", hist)
 
         if hist.empty:
             print(f"No historical data found for {ticker_symbol}")
@@ -269,6 +264,7 @@ def get_financial_data(ticker_symbol, period="1mo"):
         # Convert historical data to dictionary format with proper date formatting
         historical_data = {}
         for date, row in hist.iterrows():
+<<<<<<< HEAD
             try:
                 # Handle timezone-aware timestamps
                 if date.tz is not None:
@@ -289,8 +285,16 @@ def get_financial_data(ticker_symbol, period="1mo"):
             except Exception as e:
                 print(f"Error processing date {date}: {e}")
                 continue
-
-        print("DEBUG: Processed historical data keys:", list(historical_data.keys())[-5:])  # Show last 5 dates
+=======
+            date_str = date.strftime('%Y-%m-%d')
+            historical_data[date_str] = {
+                'Open': float(row['Open']),
+                'High': float(row['High']),
+                'Low': float(row['Low']),
+                'Close': float(row['Close']),
+                'Volume': float(row['Volume'])
+            }
+>>>>>>> parent of 270fce9 (Update project configuration, enhance UI components, and improve backend functionality)
 
         data = {
             "ticker": ticker_symbol,
@@ -1218,9 +1222,7 @@ def run_pipeline(ticker, force_refresh=False):
                 last_run_time = parser.isoparse(last_run_time)
             if last_run_time.tzinfo is None:
                 last_run_time = last_run_time.replace(tzinfo=timezone.utc)
-            
-            # Check if cache is still valid (less than 1 hour old)
-            if now_utc - last_run_time < timedelta(hours=1):
+            if now_utc - last_run_time < timedelta(hours=24):
                 recent_data = conn.execute(
                     text("SELECT * FROM data WHERE `company_info.ticker` = :ticker ORDER BY last_run DESC LIMIT 1"),
                     {"ticker": ticker}
@@ -1255,8 +1257,6 @@ def run_pipeline(ticker, force_refresh=False):
                         except json.JSONDecodeError as e:
                             print(f"DEBUG: Error parsing historical_data: {e}")
                     
-                    # Ensure last_run is set
-                    reconstructed_data['last_run'] = last_run_time.isoformat()
                     return reconstructed_data
                 else:
                     pipeline_steps[-1]["status"] = "completed"
@@ -1264,12 +1264,19 @@ def run_pipeline(ticker, force_refresh=False):
                     update_pipeline_status(ticker, "Checking cache", "completed", "No cached data found")
             else:
                 pipeline_steps[-1]["status"] = "completed"
+<<<<<<< HEAD
                 pipeline_steps[-1]["message"] = "Cache expired, running pipeline"
                 update_pipeline_status(ticker, "Checking cache", "completed", "Cache expired, running pipeline")
         else:
             pipeline_steps[-1]["status"] = "completed"
             pipeline_steps[-1]["message"] = "Force refresh requested, running pipeline"
             update_pipeline_status(ticker, "Checking cache", "completed", "Force refresh requested, running pipeline")
+=======
+                pipeline_steps[-1]["message"] = "Cache expired"
+        else:
+            pipeline_steps[-1]["status"] = "completed"
+            pipeline_steps[-1]["message"] = "Force refresh requested"
+>>>>>>> parent of 270fce9 (Update project configuration, enhance UI components, and improve backend functionality)
 
     # Step 1: Financial data
     pipeline_steps.append({"step": "Fetching company info", "status": "running"})
@@ -1360,11 +1367,8 @@ def run_pipeline(ticker, force_refresh=False):
         df_flat = pd.DataFrame([flattened])
 
         with engine.begin() as conn:
-            # Delete old data for this ticker
             conn.execute(text("DELETE FROM data WHERE `company_info.ticker` = :ticker"), {"ticker": ticker})
-            # Insert new data
             df_flat.to_sql("data", con=conn, if_exists="append", index=False)
-            # Fetch the newly inserted data
             recent_data = conn.execute(
                 text("SELECT * FROM data WHERE `company_info.ticker` = :ticker ORDER BY last_run DESC LIMIT 1"),
                 {"ticker": ticker}
@@ -1396,8 +1400,6 @@ def run_pipeline(ticker, force_refresh=False):
                     except json.JSONDecodeError as e:
                         print(f"DEBUG: Error parsing historical_data: {e}")
                 
-                # Ensure last_run is set
-                reconstructed_data['last_run'] = now_utc.isoformat()
                 return reconstructed_data
             else:
                 raise ValueError(f"No recent data found in DB for {ticker}")
@@ -1407,6 +1409,7 @@ def run_pipeline(ticker, force_refresh=False):
         print(f"DEBUG: Error details: {str(e)}")
         raise
 
+<<<<<<< HEAD
 def get_current_price(ticker_symbol):
     """
     Get current stock price using Finnhub
@@ -1436,6 +1439,19 @@ def get_current_price(ticker_symbol):
             "error": f"Error retrieving data for {ticker_symbol}: {str(e)}",
             "ticker": ticker_symbol
         }
+=======
+app = Flask(__name__)
+
+# Configure CORS
+CORS(app, 
+     resources={r"/*": {
+         "origins": ["https://tradevision-kappa.vercel.app", "http://localhost:3000"],
+         "methods": ["GET", "POST", "OPTIONS"],
+         "allow_headers": ["Content-Type", "Authorization", "Accept"],
+         "supports_credentials": False,
+         "expose_headers": ["Content-Type", "Authorization"]
+     }})
+>>>>>>> parent of 270fce9 (Update project configuration, enhance UI components, and improve backend functionality)
 
 @app.route('/health', methods=['GET'])
 def health_check():
@@ -1586,21 +1602,6 @@ def analyze():
         return jsonify({
             "error": f"Internal server error: {str(e)}",
             "status": "error"
-        }), 500
-
-@app.route('/api/price/<ticker>', methods=['GET'])
-def get_price(ticker):
-    """Get current stock price endpoint"""
-    try:
-        data = get_current_price(ticker)
-        return jsonify({
-            "status": "success",
-            "data": data
-        })
-    except Exception as e:
-        return jsonify({
-            "status": "error",
-            "error": str(e)
         }), 500
 
 # Error handlers
