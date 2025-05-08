@@ -8,7 +8,7 @@ from sqlalchemy import create_engine, text
 from io import StringIO
 from sqlalchemy import create_engine
 from sqlalchemy import text
-from flask import Flask, request, jsonify, make_response
+from flask import Flask, request, jsonify, make_response, Response
 from flask_cors import CORS
 import pymysql
 import json
@@ -18,6 +18,27 @@ import tempfile
 import logging
 import sys
 from curl_cffi import requests as curl_requests
+import queue
+import threading
+import time
+import redis
+import traceback
+import uuid
+from dateutil import parser
+
+# Initialize Flask app
+app = Flask(__name__)
+
+# Configure CORS
+CORS(app, 
+     resources={r"/*": {
+         "origins": ["https://tradevision-kappa.vercel.app", "http://localhost:3000"],
+         "methods": ["GET", "POST", "OPTIONS"],
+         "allow_headers": ["Content-Type", "Authorization", "Accept", "Cache-Control", "X-Requested-With"],
+         "supports_credentials": False,
+         "expose_headers": ["Content-Type", "Authorization", "Cache-Control", "X-Accel-Buffering"],
+         "max_age": 3600
+     }})
 
 # Configure logging
 logging.basicConfig(
@@ -90,6 +111,24 @@ openai_api_key = os.environ.get("OPENAI_API_KEY")
 reddit_client_id = os.environ.get("REDDIT_CLIENT_ID")
 reddit_client_secret = os.environ.get("REDDIT_CLIENT_SECRET")
 reddit_user_agent = os.environ.get("REDDIT_USER_AGENT")
+
+# Initialize Redis
+redis_url = os.getenv('REDIS_URL')
+if redis_url:
+    redis_client = redis.from_url(redis_url, decode_responses=True)
+else:
+    redis_client = redis.Redis(
+        host=os.getenv('REDIS_HOST', 'localhost'),
+        port=int(os.getenv('REDIS_PORT', 6379)),
+        password=os.getenv('REDIS_PASSWORD'),
+        db=0,
+        decode_responses=True
+    )
+
+# Redis key patterns
+PIPELINE_UPDATES_KEY = "pipeline_updates:{}"  # Format with symbol
+PIPELINE_RESULTS_KEY = "pipeline_results:{}"  # Format with symbol
+PIPELINE_EXPIRY = 3600  # 1 hour in seconds
 
 def get_company_info(ticker_symbol):
     """
@@ -230,16 +269,26 @@ def get_financial_data(ticker_symbol, period="1mo"):
         # Convert historical data to dictionary format with proper date formatting
         historical_data = {}
         for date, row in hist.iterrows():
-            # Convert to EST timezone for consistency
-            est_date = date.tz_localize('UTC').tz_convert('US/Eastern')
-            date_str = est_date.strftime('%Y-%m-%d')
-            historical_data[date_str] = {
-                'Open': float(row['Open']),
-                'High': float(row['High']),
-                'Low': float(row['Low']),
-                'Close': float(row['Close']),
-                'Volume': float(row['Volume'])
-            }
+            try:
+                # Handle timezone-aware timestamps
+                if date.tz is not None:
+                    # Convert to EST timezone
+                    est_date = date.tz_convert('US/Eastern')
+                else:
+                    # If timestamp is naive, assume UTC and convert to EST
+                    est_date = date.tz_localize('UTC').tz_convert('US/Eastern')
+                
+                date_str = est_date.strftime('%Y-%m-%d')
+                historical_data[date_str] = {
+                    'Open': float(row['Open']),
+                    'High': float(row['High']),
+                    'Low': float(row['Low']),
+                    'Close': float(row['Close']),
+                    'Volume': float(row['Volume'])
+                }
+            except Exception as e:
+                print(f"Error processing date {date}: {e}")
+                continue
 
         print("DEBUG: Processed historical data keys:", list(historical_data.keys())[-5:])  # Show last 5 dates
 
@@ -462,12 +511,6 @@ def calculate_metrics(financial_data, news_data, social_data):
         scores["financial_momentum"] = financial_momentum
     except Exception as e:
         print(f"Error calculating financial momentum: {e}")
-        print(f"Error type: {type(e)}")
-        print(f"Error details: {str(e)}")
-        print(f"Financial data structure: {json.dumps(financial_data, indent=2, default=json_serial)}")
-        if 'historical_data' in financial_data:
-            print(f"Historical data type: {type(financial_data['historical_data'])}")
-            print(f"Historical data sample: {json.dumps(dict(list(financial_data['historical_data'].items())[:2]), indent=2, default=json_serial)}")
         scores["financial_momentum"] = 50
 
     # 2. News sentiment score (0-100)
@@ -494,16 +537,28 @@ def calculate_metrics(financial_data, news_data, social_data):
     # 3. Social media buzz score (0-100)
     try:
         if social_data.get("posts"):
+            # Calculate sentiment metrics
+            sentiment_scores = [post["sentiment_score"] for post in social_data["posts"]]
+            avg_sentiment = sum(sentiment_scores) / len(sentiment_scores)
+            
+            # Calculate sentiment distribution
+            sentiment_distribution = {
+                "positive": len([s for s in sentiment_scores if s > 0.05]) / len(sentiment_scores),
+                "neutral": len([s for s in sentiment_scores if -0.05 <= s <= 0.05]) / len(sentiment_scores),
+                "negative": len([s for s in sentiment_scores if s < -0.05]) / len(sentiment_scores)
+            }
+            
+            # Get top engaging posts
+            most_engaging_posts = sorted(social_data["posts"], key=lambda x: x.get('engagement', 0), reverse=True)[:10]
+            
             # Basic social sentiment
-            social_sentiment = (social_data["avg_sentiment"] + 1) * 50
+            social_sentiment = (avg_sentiment + 1) * 50
 
             # Volume factor
             post_volume = min(2.0, max(0.5, social_data["total_posts"] / 50))
 
             # Recent post ratio
             now = datetime.now(timezone.utc)
-
-
             recent_posts = [p for p in social_data["posts"]
                 if isinstance(p.get("created_at"), (datetime, np.datetime64)) and
                   p["created_at"].replace(tzinfo=tzutc()) > (now - timedelta(hours=24))
@@ -519,11 +574,34 @@ def calculate_metrics(financial_data, news_data, social_data):
             social_buzz = min(100, max(0, social_sentiment * post_volume * recency_factor * engagement_factor))
 
             scores["social_buzz"] = social_buzz
+            scores["social_metrics"] = {
+                "avg_sentiment": avg_sentiment,
+                "sentiment_distribution": sentiment_distribution,
+                "top_posts": most_engaging_posts
+            }
         else:
             scores["social_buzz"] = 0
+            scores["social_metrics"] = {
+                "avg_sentiment": 0,
+                "sentiment_distribution": {
+                    "positive": 0,
+                    "neutral": 0,
+                    "negative": 0
+                },
+                "top_posts": []
+            }
     except Exception as e:
         print(f"Error calculating social buzz: {e}")
         scores["social_buzz"] = 0
+        scores["social_metrics"] = {
+            "avg_sentiment": 0,
+            "sentiment_distribution": {
+                "positive": 0,
+                "neutral": 0,
+                "negative": 0
+            },
+            "top_posts": []
+        }
 
     # 4. Combined "Hype Index"
     try:
@@ -555,8 +633,6 @@ def calculate_metrics(financial_data, news_data, social_data):
         scores["sentiment_price_divergence"] = sentiment_price_divergence
     except Exception as e:
         print(f"Error calculating sentiment-price divergence: {e}")
-        print(f"Error type: {type(e)}")
-        print(f"Error details: {str(e)}")
         scores["sentiment_price_divergence"] = 0
 
     return scores
@@ -682,7 +758,6 @@ def scrape_social_media(company_name, search_queries, max_results=100):
     """
     Scrape Reddit for company mentions using the search queries generated by the LLM
     """
-
     # Initialize sentiment analyzer
     analyzer = SentimentIntensityAnalyzer()
     all_posts = []
@@ -708,7 +783,8 @@ def scrape_social_media(company_name, search_queries, max_results=100):
         )
 
         reddit_posts = []
-        min_posts_target = 20
+        min_posts_target = 10  # Reduced from 20 to 10
+        max_attempts_per_subreddit = 2  # Limit attempts per subreddit
 
         # Calculate the timestamp for one week ago
         one_week_ago = (pd.Timestamp.now() - pd.Timedelta(days=7)).timestamp()
@@ -732,7 +808,7 @@ def scrape_social_media(company_name, search_queries, max_results=100):
         print(f"Searching Reddit in subreddits: {subreddits}")
 
         # Function to fetch posts from a subreddit within time limit
-        def get_recent_posts(subreddit_obj, query, limit=30):
+        def get_recent_posts(subreddit_obj, query, limit=10):  # Reduced from 30 to 10
             recent_posts = []
             try:
                 # First try with search
@@ -755,11 +831,11 @@ def scrape_social_media(company_name, search_queries, max_results=100):
 
                     recent_posts.append(post)
 
-                # If we didn't get enough posts, browsing hot/new as well
-                if len(recent_posts) < 20:
+                # If we didn't get enough posts, try browsing hot/new
+                if len(recent_posts) < 5:  # Reduced from 20 to 5
                     browse_methods = [
-                        (subreddit_obj.hot, min(20, limit)),
-                        (subreddit_obj.new, min(20, limit))
+                        (subreddit_obj.hot, min(5, limit)),  # Reduced from 20 to 5
+                        (subreddit_obj.new, min(5, limit))   # Reduced from 20 to 5
                     ]
 
                     for method, method_limit in browse_methods:
@@ -807,58 +883,36 @@ def scrape_social_media(company_name, search_queries, max_results=100):
                     break
 
                 # Try each search query until we have enough posts
-                for query in search_queries:
-                    new_posts = get_recent_posts(subreddit, query, limit=30)
+                for query in search_queries[:2]:  # Only try first 2 queries
+                    new_posts = get_recent_posts(subreddit, query, limit=10)  # Reduced from 30 to 10
                     reddit_posts.extend([filter_and_score_post(post) for post in new_posts])
 
                     print(f"Found {len(new_posts)} posts for query '{query}' in r/{subreddit_name}")
 
                     if len(reddit_posts) >= min_posts_target:
                         break
+
+                    # Add a small delay to avoid rate limiting
+                    time.sleep(1)
             except Exception as e:
                 print(f"Error accessing subreddit {subreddit_name}: {e}")
                 continue
 
         print(f"Collected a total of {len(reddit_posts)} Reddit posts")
-        bluesky_posts = fetch_bluesky_posts_and_analyze(company_name, search_queries, analyzer)
-        all_posts.extend(bluesky_posts)
-        all_posts.extend(reddit_posts)
+        
+        # Only fetch Bluesky posts if we have Reddit posts
+        if reddit_posts:
+            bluesky_posts = fetch_bluesky_posts_and_analyze(company_name, search_queries[:2], analyzer)  # Only try first 2 queries
+            all_posts.extend(bluesky_posts)
+            all_posts.extend(reddit_posts)
     except Exception as e:
         print(f"Error initializing Reddit API: {e}")
 
-    # Calculate overall metrics
-    if all_posts:
-        sentiment_scores = [post["sentiment_score"] for post in all_posts]
-        avg_sentiment = sum(sentiment_scores) / len(sentiment_scores)
-
-        sentiment_distribution = {
-            "positive": len([s for s in sentiment_scores if s > 0.05]) / len(sentiment_scores),
-            "neutral": len([s for s in sentiment_scores if -0.05 <= s <= 0.05]) / len(sentiment_scores),
-            "negative": len([s for s in sentiment_scores if s < -0.05]) / len(sentiment_scores)
-        }
-
-        # Sort by engagement
-        most_engaging_posts = sorted(all_posts, key=lambda x: x.get('engagement', 0), reverse=True)[:10]
-
-        return {
-            "posts": all_posts,
-            "top_posts": most_engaging_posts,
-            "total_posts": len(all_posts),
-            "avg_sentiment": avg_sentiment,
-            "sentiment_distribution": sentiment_distribution
-        }
-    else:
-        return {
-            "posts": all_posts,
-            "top_posts": sorted(all_posts, key=lambda x: x.get('engagement', 0), reverse=True)[:10],
-            "total_posts": len(all_posts),
-            "avg_sentiment": sum(post["sentiment_score"] for post in all_posts) / len(all_posts),
-            "sentiment_distribution": {
-                "positive": len([p for p in all_posts if p["sentiment_score"] > 0.05]) / len(all_posts),
-                "neutral": len([p for p in all_posts if -0.05 <= p["sentiment_score"] <= 0.05]) / len(all_posts),
-                "negative": len([p for p in all_posts if p["sentiment_score"] < -0.05]) / len(all_posts),
-            }
-        }
+    # Return raw posts with sentiment scores
+    return {
+        "posts": all_posts,
+        "total_posts": len(all_posts)
+    }
 
 """# Stock Recommendations
 
@@ -931,6 +985,172 @@ def flatten_nested_dict(d, parent_key='', sep='.'):
             items.append((new_key, v))
     return dict(items)
 
+# Add a queue to store pipeline updates
+pipeline_updates = {}
+
+def generate_sse(symbol):
+    """Generate Server-Sent Events for pipeline updates"""
+    logger.info(f"Starting SSE stream for symbol: {symbol}")
+    try:
+        while True:
+            if symbol in pipeline_updates:
+                updates = pipeline_updates[symbol]
+                while not updates.empty():
+                    try:
+                        data = updates.get_nowait()
+                        logger.info(f"Sending SSE update for {symbol}: {data}")
+                        yield f"data: {json.dumps(data)}\n\n"
+                    except queue.Empty:
+                        break
+            time.sleep(0.1)
+    except Exception as e:
+        logger.error(f"Error in SSE stream for {symbol}: {e}")
+        raise
+
+@app.route('/analyze/stream/<symbol>', methods=['GET'])
+def stream_pipeline(symbol):
+    """Stream pipeline updates using Server-Sent Events with Redis."""
+    logger.info(f"New SSE connection request for symbol: {symbol}")
+    logger.info(f"Request headers: {dict(request.headers)}")
+    
+    def generate():
+        try:
+            logger.info(f"Starting SSE stream for {symbol}")
+            
+            # Send initial connection message immediately
+            initial_message = {'status': 'connected', 'timestamp': datetime.now().isoformat()}
+            logger.info(f"Sending initial connection message: {initial_message}")
+            yield f"data: {json.dumps(initial_message)}\n\n"
+            
+            # Initialize Redis pubsub after sending initial message
+            pubsub = redis_client.pubsub()
+            
+            # Create a unique channel for this client
+            client_id = str(uuid.uuid4())
+            channel = f"pipeline_updates:{symbol}:{client_id}"
+            logger.info(f"Subscribing to Redis channel: {channel}")
+            
+            # Subscribe to both the client-specific channel and the default channel
+            pubsub.subscribe(channel)
+            pubsub.subscribe(f"pipeline_updates:{symbol}:default")
+            
+            # Listen for updates
+            for message in pubsub.listen():
+                if message['type'] == 'message':
+                    try:
+                        update = json.loads(message['data'])
+                        logger.info(f"Received message on channel {message['channel']}: {update}")
+                        logger.info(f"Sending SSE update for {symbol}: {update}")
+                        yield f"data: {json.dumps(update)}\n\n"
+                    except json.JSONDecodeError as e:
+                        logger.error(f"Error decoding message: {e}")
+                elif message['type'] == 'subscribe':
+                    logger.info(f"Subscribed to channel: {message['channel']}")
+                
+        except GeneratorExit:
+            logger.info(f"Client disconnected from SSE stream for {symbol}")
+            pubsub.unsubscribe()
+        except Exception as e:
+            logger.error(f"Error in SSE stream for {symbol}: {str(e)}")
+            logger.error(f"Error details: {traceback.format_exc()}")
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+    response = Response(
+        generate(),
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Headers': 'Content-Type',
+            'Access-Control-Allow-Methods': 'GET, OPTIONS',
+            'Access-Control-Allow-Credentials': 'true',
+            'X-Accel-Buffering': 'no'
+        }
+    )
+    
+    # Add CORS headers for SSE
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
+    response.headers['Access-Control-Allow-Credentials'] = 'true'
+    
+    logger.info(f"Returning SSE response with headers: {dict(response.headers)}")
+    return response
+
+def get_pipeline_updates(symbol: str) -> list:
+    """Get all pipeline updates for a symbol from Redis."""
+    try:
+        key = PIPELINE_UPDATES_KEY.format(symbol)
+        updates = redis_client.lrange(key, 0, -1)
+        return [json.loads(update) for update in updates]
+    except Exception as e:
+        logger.error(f"Error getting pipeline updates for {symbol}: {str(e)}")
+        return []
+
+def cache_pipeline_result(symbol: str, result: dict):
+    """Cache pipeline result in Redis."""
+    try:
+        key = PIPELINE_RESULTS_KEY.format(symbol)
+        redis_client.set(key, json.dumps(result), ex=PIPELINE_EXPIRY)
+        logger.info(f"Cached pipeline result for {symbol}")
+    except Exception as e:
+        logger.error(f"Error caching pipeline result for {symbol}: {str(e)}")
+
+def get_cached_pipeline_result(symbol: str) -> dict:
+    """Get cached pipeline result from Redis."""
+    try:
+        key = PIPELINE_RESULTS_KEY.format(symbol)
+        result = redis_client.get(key)
+        return json.loads(result) if result else None
+    except Exception as e:
+        logger.error(f"Error getting cached pipeline result for {symbol}: {str(e)}")
+        return None
+
+def update_pipeline_status(symbol: str, step: str, status: str, message: str = None):
+    logger.info(f"Updating pipeline status for {symbol}: step={step}, status={status}, message={message}")
+    try:
+        # Check if we already have this exact update (ignoring timestamp)
+        key = PIPELINE_UPDATES_KEY.format(symbol)
+        last_update = redis_client.lindex(key, 0)  # Get the most recent update
+        if last_update:
+            last_update_data = json.loads(last_update)
+            if (last_update_data.get('step') == step and 
+                last_update_data.get('status') == status and 
+                last_update_data.get('message') == message):
+                logger.info(f"Skipping duplicate update for {symbol}: {step}")
+                return
+        update = {
+            'step': step,
+            'status': status,
+            'message': message,
+            'timestamp': datetime.now().isoformat()
+        }
+        # Store the update in Redis
+        redis_client.lpush(key, json.dumps(update))
+        redis_client.expire(key, PIPELINE_EXPIRY)
+        # Get all client channels for this symbol
+        pattern = f"pipeline_updates:{symbol}:*"
+        client_channels = redis_client.keys(pattern)
+        logger.info(f"Found {len(client_channels)} client channels for {symbol}")
+        logger.info(f"Client channels: {client_channels}")
+        # Publish the update to each client channel
+        for channel in client_channels:
+            logger.info(f"Publishing to channel {channel}: {update}")
+            redis_client.publish(channel, json.dumps(update))
+        # If no client channels found, only publish to default channel if this step/status/message is new
+        if not client_channels:
+            default_channel = f"pipeline_updates:{symbol}:default"
+            # Check the last message on the default channel (if any)
+            # Redis pubsub doesn't store messages, so we can't check pubsub history, but we can check the last update in the list
+            # We'll use the same check as above
+            logger.info(f"No client channels found, publishing to default channel: {default_channel}")
+            redis_client.publish(default_channel, json.dumps(update))
+        logger.info(f"Successfully published update for {symbol}: {update}")
+    except Exception as e:
+        logger.error(f"Error updating pipeline status for {symbol}: {str(e)}")
+        logger.error(f"Error details: {traceback.format_exc()}")
+
 def run_pipeline(ticker, force_refresh=False):
     from datetime import datetime, timedelta, timezone
     from dateutil import parser
@@ -943,6 +1163,7 @@ def run_pipeline(ticker, force_refresh=False):
 
     # Step 0: Check last run from `data` table
     pipeline_steps.append({"step": "Checking cache", "status": "running"})
+    update_pipeline_status(ticker, "Checking cache", "running")
     with engine.connect() as conn:
         # Check if pipeline_steps column exists and add it if it doesn't
         try:
@@ -962,6 +1183,29 @@ def run_pipeline(ticker, force_refresh=False):
                 """))
         except Exception as e:
             print(f"Error managing pipeline_steps column: {e}")
+
+        # Check and add social metrics columns if they don't exist
+        try:
+            # Check if social metrics columns exist
+            result = conn.execute(text("""
+                SELECT COUNT(*)
+                FROM information_schema.columns 
+                WHERE table_name = 'data' 
+                AND column_name = 'scores.social_metrics.avg_sentiment'
+            """)).scalar()
+            
+            if result == 0:
+                # Add social metrics columns
+                conn.execute(text("""
+                    ALTER TABLE data 
+                    ADD COLUMN `scores.social_metrics.avg_sentiment` FLOAT,
+                    ADD COLUMN `scores.social_metrics.sentiment_distribution.positive` FLOAT,
+                    ADD COLUMN `scores.social_metrics.sentiment_distribution.neutral` FLOAT,
+                    ADD COLUMN `scores.social_metrics.sentiment_distribution.negative` FLOAT,
+                    ADD COLUMN `scores.social_metrics.top_posts` JSON
+                """))
+        except Exception as e:
+            print(f"Error managing social metrics columns: {e}")
 
         result = conn.execute(
             text("SELECT last_run FROM data WHERE `company_info.ticker` = :ticker ORDER BY last_run DESC LIMIT 1"),
@@ -985,6 +1229,7 @@ def run_pipeline(ticker, force_refresh=False):
                 if recent_data:
                     pipeline_steps[-1]["status"] = "completed"
                     pipeline_steps[-1]["message"] = "Using cached data"
+                    update_pipeline_status(ticker, "Checking cache", "completed", "Using cached data")
                     # Convert RowMapping to dict and parse the historical_data
                     recent_data_dict = dict(recent_data)
                     
@@ -1016,21 +1261,26 @@ def run_pipeline(ticker, force_refresh=False):
                 else:
                     pipeline_steps[-1]["status"] = "completed"
                     pipeline_steps[-1]["message"] = "No cached data found"
+                    update_pipeline_status(ticker, "Checking cache", "completed", "No cached data found")
             else:
                 pipeline_steps[-1]["status"] = "completed"
                 pipeline_steps[-1]["message"] = "Cache expired, running pipeline"
+                update_pipeline_status(ticker, "Checking cache", "completed", "Cache expired, running pipeline")
         else:
             pipeline_steps[-1]["status"] = "completed"
             pipeline_steps[-1]["message"] = "Force refresh requested, running pipeline"
+            update_pipeline_status(ticker, "Checking cache", "completed", "Force refresh requested, running pipeline")
 
     # Step 1: Financial data
     pipeline_steps.append({"step": "Fetching company info", "status": "running"})
+    update_pipeline_status(ticker, "Fetching company info", "running")
     company_info = get_company_info(ticker)
     
     # Check for error in company info
     if "error" in company_info:
         pipeline_steps[-1]["status"] = "error"
         pipeline_steps[-1]["message"] = company_info["error"]
+        update_pipeline_status(ticker, "Fetching company info", "error", company_info["error"])
         return {
             "company_info": company_info,
             "pipeline_steps": pipeline_steps,
@@ -1039,15 +1289,18 @@ def run_pipeline(ticker, force_refresh=False):
 
     pipeline_steps[-1]["status"] = "completed"
     pipeline_steps[-1]["message"] = f"Got data for {company_info['name']}"
+    update_pipeline_status(ticker, "Fetching company info", "completed", f"Got data for {company_info['name']}")
 
     # Step 2: Get financial data
     pipeline_steps.append({"step": "Fetching financial data", "status": "running"})
+    update_pipeline_status(ticker, "Fetching financial data", "running")
     financial_data = get_financial_data(ticker, period="1mo")
     
     # Check for error in financial data
     if "error" in financial_data:
         pipeline_steps[-1]["status"] = "error"
         pipeline_steps[-1]["message"] = financial_data["error"]
+        update_pipeline_status(ticker, "Fetching financial data", "error", financial_data["error"])
         return {
             "company_info": company_info,
             "financial_data": financial_data,
@@ -1057,25 +1310,32 @@ def run_pipeline(ticker, force_refresh=False):
         
     pipeline_steps[-1]["status"] = "completed"
     pipeline_steps[-1]["message"] = "Got financial data"
+    update_pipeline_status(ticker, "Fetching financial data", "completed", "Got financial data")
 
     # Step 3: News data
     pipeline_steps.append({"step": "Analyzing news", "status": "running"})
+    update_pipeline_status(ticker, "Analyzing news", "running")
     news_data = get_news_and_extract_keywords(company_info['name'], days=2)
     pipeline_steps[-1]["status"] = "completed"
     pipeline_steps[-1]["message"] = f"Found {len(news_data['articles'])} articles"
+    update_pipeline_status(ticker, "Analyzing news", "completed", f"Found {len(news_data['articles'])} articles")
 
     # Step 4: Expand keywords with AI
     pipeline_steps.append({"step": "Expanding keywords", "status": "running"})
+    update_pipeline_status(ticker, "Expanding keywords", "running")
     top_keywords = [k[0] for k in news_data['top_keywords'][:10]]
     expanded_data = expand_keywords_and_generate_queries(company_info['name'], top_keywords, company_info.get('industry', 'N/A'))
     pipeline_steps[-1]["status"] = "completed"
     pipeline_steps[-1]["message"] = "Generated search queries"
+    update_pipeline_status(ticker, "Expanding keywords", "completed", "Generated search queries")
 
     # Step 5: Scraping social media
     pipeline_steps.append({"step": "Analyzing social media", "status": "running"})
+    update_pipeline_status(ticker, "Analyzing social media", "running")
     social_data = scrape_social_media(company_info['name'], expanded_data['search_queries'])
     pipeline_steps[-1]["status"] = "completed"
     pipeline_steps[-1]["message"] = f"Analyzed {social_data['total_posts']} posts"
+    update_pipeline_status(ticker, "Analyzing social media", "completed", f"Analyzed {social_data['total_posts']} posts")
 
     # Step 6: Calculate metrics
     pipeline_steps.append({"step": "Calculating metrics", "status": "running"})
@@ -1177,18 +1437,6 @@ def get_current_price(ticker_symbol):
             "ticker": ticker_symbol
         }
 
-app = Flask(__name__)
-
-# Configure CORS
-CORS(app, 
-     resources={r"/*": {
-         "origins": ["https://tradevision-kappa.vercel.app", "http://localhost:3000"],
-         "methods": ["GET", "POST", "OPTIONS"],
-         "allow_headers": ["Content-Type", "Authorization", "Accept"],
-         "supports_credentials": False,
-         "expose_headers": ["Content-Type", "Authorization"]
-     }})
-
 @app.route('/health', methods=['GET'])
 def health_check():
     """Health check endpoint"""
@@ -1235,6 +1483,56 @@ def test_yf(ticker):
         return jsonify({
             "status": "error",
             "error": str(e)
+        }), 500
+
+@app.route('/test/redis', methods=['GET'])
+def test_redis():
+    """Test Redis connection and basic operations."""
+    try:
+        # Test basic Redis operations
+        test_key = "test:connection"
+        test_value = datetime.now().isoformat()
+        
+        # Test SET
+        redis_client.set(test_key, test_value)
+        logger.info(f"Set test key {test_key} to {test_value}")
+        
+        # Test GET
+        retrieved_value = redis_client.get(test_key)
+        logger.info(f"Retrieved value: {retrieved_value}")
+        
+        # Test PUB/SUB
+        channel = "test:channel"
+        pubsub = redis_client.pubsub()
+        pubsub.subscribe(channel)
+        
+        # Publish a test message
+        test_message = {"type": "test", "timestamp": test_value}
+        redis_client.publish(channel, json.dumps(test_message))
+        logger.info(f"Published test message to {channel}")
+        
+        # Get the message
+        message = pubsub.get_message(timeout=1)
+        logger.info(f"Received message: {message}")
+        
+        # Cleanup
+        pubsub.unsubscribe(channel)
+        redis_client.delete(test_key)
+        
+        return jsonify({
+            "status": "success",
+            "message": "Redis connection and operations working",
+            "details": {
+                "set_get": retrieved_value == test_value,
+                "pubsub": message is not None
+            }
+        })
+    except Exception as e:
+        logger.error(f"Redis test failed: {str(e)}")
+        logger.error(f"Error details: {traceback.format_exc()}")
+        return jsonify({
+            "status": "error",
+            "message": str(e)
         }), 500
 
 @app.route('/analyze', methods=['POST', 'OPTIONS'])
