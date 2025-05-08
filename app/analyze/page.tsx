@@ -27,13 +27,12 @@ export default function AnalyzePage() {
   };
 
   return (
-    <div className="min-h-screen text-black">
+    <div className="min-h-screen bg-white text-black">
       <div className="lg:grid lg:grid-cols-[280px_1fr]">
         <Sidebar />
-        <main className="p-6 lg:p-8 flex flex-col min-h-screen relative">
+        <main className="p-6 lg:p-8 flex flex-col min-h-screen">
           <motion.div 
-            className="flex flex-col items-center relative z-10 bg-white/30 backdrop-blur-sm rounded-2xl p-8 w-full max-w-lg mx-auto "
-            initial={{ y: "calc(50vh - 50%)", gap: "1.5rem" }}
+            className="flex flex-col items-center"
             animate={{
               y: shouldAnalyze ? 0 : "calc(50vh - 50%)",
               gap: shouldAnalyze ? "0.5rem" : "1.5rem"
@@ -45,7 +44,6 @@ export default function AnalyzePage() {
               duration: 0.5
             }}
           >
-            <img src="/logo.svg" alt="Logo" className="h-16 w-16" />
             <h1 
               className="font-bold font-PPTelegraf tracking-tight" 
               style={{ fontSize: '60px' }}
@@ -66,7 +64,7 @@ export default function AnalyzePage() {
           <AnimatePresence>
             {shouldAnalyze && (
               <motion.div 
-                className="mt-6 p-6 min-h-[200px] w-full relative z-10"
+                className="mt-6 p-6 min-h-[200px] w-full"
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: 20 }}

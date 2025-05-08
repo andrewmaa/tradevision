@@ -7,10 +7,7 @@ import { MetricsCard } from "@/components/metrics-card";
 export default function Dashboard() {
   const [savedStocks, setSavedStocks] = useState<string[]>([]);
   const [stockData, setStockData] = useState<{[key: string]: any}>({});
-  const [isLoading, setIsLoading] = useState(true);
-  const [isInitialized, setIsInitialized] = useState(false);
 
-  // Load saved stocks from localStorage
   useEffect(() => {
     const loadSavedStocks = () => {
       const stocks = JSON.parse(localStorage.getItem('savedStocks') || '[]');
@@ -23,15 +20,8 @@ export default function Dashboard() {
     return () => window.removeEventListener('storage', loadSavedStocks);
   }, []);
 
-  // Fetch data for each stock sequentially
   useEffect(() => {
     const fetchStockData = async () => {
-      if (!isInitialized || savedStocks.length === 0) {
-        setIsLoading(false);
-        return;
-      }
-
-      setIsLoading(true);
       const newStockData: {[key: string]: any} = {};
       
       for (const stock of savedStocks) {
@@ -51,52 +41,25 @@ export default function Dashboard() {
           if (response.ok) {
             const data = await response.json();
             newStockData[stock] = data.results[stock]?.result;
-            // Update state after each successful fetch
-            setStockData(prev => ({
-              ...prev,
-              [stock]: data.results[stock]?.result
-            }));
           }
         } catch (error) {
           console.error(`Error fetching data for ${stock}:`, error);
         }
       }
       
-      setIsLoading(false);
+      setStockData(newStockData);
     };
 
-    fetchStockData();
-  }, [savedStocks, isInitialized]);
-
-  // Set initialized after component mounts
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setIsInitialized(true);
-    }, 1000); // Wait 1 second after mount before loading data
-
-    return () => clearTimeout(timer);
-  }, []);
+    if (savedStocks.length > 0) {
+      fetchStockData();
+    }
+  }, [savedStocks]);
 
   const removeStock = (stockToRemove: string) => {
     const newSavedStocks = savedStocks.filter(stock => stock !== stockToRemove);
     localStorage.setItem('savedStocks', JSON.stringify(newSavedStocks));
     setSavedStocks(newSavedStocks);
-    // Remove the stock data from state
-    setStockData(prev => {
-      const newData = { ...prev };
-      delete newData[stockToRemove];
-      return newData;
-    });
   };
-
-  if (!isInitialized || isLoading) {
-    return (
-      <div className="h-full flex flex-col items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
-        <p className="mt-4 text-gray-500">Loading dashboard...</p>
-      </div>
-    );
-  }
 
   if (savedStocks.length === 0) {
     return (
@@ -113,8 +76,9 @@ export default function Dashboard() {
         {savedStocks.map((stock) => {
           const data = stockData[stock];
           const score = data?.scores?.hype_index ?? 0;
-          const price = data?.financial_data?.current_price ?? 0;
-          const priceChange = data?.financial_data?.price_change ?? 0;
+          const price = data?.financial_data?.current_price;
+          const priceChange = data?.financial_data?.price_change;
+          
           return (
             <div key={stock} className="relative group">
               <Button
@@ -129,12 +93,10 @@ export default function Dashboard() {
                 title={stock}
                 value={score.toString()}
                 companyName={data?.company_info?.name ?? stock}
-                change={{
-                  value: price.toFixed(2),
-                  percentage: `${priceChange.toFixed(2)}%`,
-                  isPositive: priceChange >= 0
-                }}
+                change={{ value: '', percentage: '', isPositive: score >= 50 }}
                 chart={null}
+                price={price}
+                priceChange={priceChange}
               />
             </div>
           );

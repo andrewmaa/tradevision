@@ -1,11 +1,7 @@
 import { Card } from "@/components/ui/card"
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { ArrowUpRight } from "lucide-react"
+import { ArrowUpRight, ArrowDownRight } from "lucide-react"
 import React from "react"
-import StockHeaderCard from "./StockHeaderCard"
-import StockChart from "./StockChart"
-import { API_BASE_URL } from '../app/api/stock-service'
 
 // Get tooltip message based on score
 const getTooltipMessage = (score: number) => {
@@ -28,7 +24,10 @@ interface MetricsCardProps {
     isPositive: boolean
   }
   chart?: React.ReactNode
+  price?: number
+  priceChange?: number
 }
+
 // ScoreCircle component
 function ScoreCircle({ score }: { score: number }) {
   const radius = 36;
@@ -135,159 +134,35 @@ function ScoreCircle({ score }: { score: number }) {
   );
 }
 
-export function MetricsCard({ title, value, companyName, change, chart }: MetricsCardProps) {
+export function MetricsCard({ title, value, companyName, change, chart, price, priceChange }: MetricsCardProps) {
   const score = Number(value);
-  const [showDetails, setShowDetails] = React.useState(false);
-  const [stockData, setStockData] = React.useState<any>(null);
-  const [loading, setLoading] = React.useState(false);
-
-  const fetchStockDetails = async () => {
-    setLoading(true);
-    try {
-      console.log("Fetching details for:", title);
-      const response = await fetch(`${API_BASE_URL}/analyze`, {
-        method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          "Accept": "application/json"
-        },
-        mode: 'cors',
-        credentials: 'omit',
-        body: JSON.stringify({ 
-          symbols: title,
-          force_refresh: false 
-        }),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        console.log("Received data:", data);
-        const stockResult = data.results[title]?.result;
-        
-        if (stockResult?.last_run) {
-          const lastRun = new Date(stockResult.last_run);
-          const now = new Date();
-          const hoursSinceLastRun = (now.getTime() - lastRun.getTime()) / (1000 * 60 * 60);
-          
-          // If data is older than 1 hour, refresh it
-          if (hoursSinceLastRun >= 1) {
-            console.log("Data is older than 1 hour, refreshing...");
-            const refreshResponse = await fetch(`${API_BASE_URL}/analyze`, {
-              method: "POST",
-              headers: { 
-                "Content-Type": "application/json",
-                "Accept": "application/json"
-              },
-              mode: 'cors',
-              credentials: 'omit',
-              body: JSON.stringify({ 
-                symbols: title,
-                force_refresh: true 
-              }),
-            });
-            
-            if (refreshResponse.ok) {
-              const refreshData = await refreshResponse.json();
-              setStockData(refreshData.results[title]?.result);
-            }
-          } else {
-            console.log("Using cached data, last updated:", lastRun);
-            setStockData(stockResult);
-          }
-        } else {
-          // If no last_run timestamp, treat as new data
-          console.log("No last_run timestamp, treating as new data");
-          const refreshResponse = await fetch(`${API_BASE_URL}/analyze`, {
-            method: "POST",
-            headers: { 
-              "Content-Type": "application/json",
-              "Accept": "application/json"
-            },
-            mode: 'cors',
-            credentials: 'omit',
-            body: JSON.stringify({ 
-              symbols: title,
-              force_refresh: true 
-            }),
-          });
-          
-          if (refreshResponse.ok) {
-            const refreshData = await refreshResponse.json();
-            setStockData(refreshData.results[title]?.result);
-          }
-        }
-      } else {
-        console.error("Failed to fetch data:", response.status);
-      }
-    } catch (error) {
-      console.error(`Error fetching data for ${title}:`, error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleClick = () => {
-    setShowDetails(true);
-    fetchStockDetails();
-  };
+  const isPricePositive = priceChange ? priceChange >= 0 : change.isPositive;
+  const priceChangeColor = isPricePositive ? "text-green-500" : "text-red-500";
+  const priceChangePrefix = isPricePositive ? "+" : "";
 
   return (
-    <>
-      <Card 
-        className="p-4 bg-background/50 backdrop-blur cursor-pointer hover:bg-background/70 transition-colors" 
-        onClick={handleClick}
-      >
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-sm text-muted-foreground">{title}</h3>
-            <p className="text-sm font-medium">{companyName}</p>
-            {change && (
-              <div className="mt-1 flex items-center gap-2">
-                <p className="text-lg font-bold">${change.value}</p>
-                <p className={`text-md ${change.isPositive ? 'text-green-600' : 'text-red-600'}`}>
-                  {change.isPositive ? '+' : ''}{change.percentage}
+    <Card className="p-4 bg-background/50 backdrop-blur">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-sm text-muted-foreground">{title}</h3>
+          <p className="text-sm font-medium">{companyName}</p>
+          {price !== undefined && (
+            <div className="mt-2">
+              <p className="text-lg font-semibold">${price.toFixed(2)}</p>
+              {priceChange !== undefined && (
+                <p className={`text-sm ${priceChangeColor} flex items-center gap-1`}>
+                  {isPricePositive ? <ArrowUpRight className="h-4 w-4" /> : <ArrowDownRight className="h-4 w-4" />}
+                  {priceChangePrefix}{priceChange.toFixed(2)}%
                 </p>
-              </div>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            <ScoreCircle score={score} />
-            {chart}
-          </div>
-        </div>
-      </Card>
-
-      <Dialog open={showDetails} onOpenChange={setShowDetails}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Stock Details</DialogTitle>
-          </DialogHeader>
-          {loading ? (
-            <div className="flex items-center justify-center p-8">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-            </div>
-          ) : stockData && (
-            <div className="space-y-8">
-              <StockHeaderCard
-                ticker={title}
-                currentPrice={stockData.financial_data?.current_price ?? 0}
-                change={stockData.financial_data?.price_change ?? 0}
-                companyInfo={stockData.company_info ?? { name: companyName }}
-                hypeIndex={stockData.scores?.hype_index}
-                lastRun={stockData.last_run}
-              />
-              <StockChart 
-                data={stockData}
-                companyInfo={stockData.company_info}
-                onRefresh={() => fetchStockDetails()}
-                loading={loading}
-                status={stockData.status}
-                pipelineSteps={stockData.pipeline_steps}
-              />
+              )}
             </div>
           )}
-        </DialogContent>
-      </Dialog>
-    </>
+        </div>
+        <div className="flex items-center gap-2">
+          <ScoreCircle score={score} />
+          {chart}
+        </div>
+      </div>
+    </Card>
   )
 }
