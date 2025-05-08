@@ -204,8 +204,13 @@ def get_financial_data(ticker_symbol, period="1mo"):
         company = yf.Ticker(ticker_symbol, session=session)
         
         print("DEBUG: Fetching historical data")
-        hist = company.history(period=period)
-        print("DEBUG: Historical data:", hist)
+        # Use a longer period to ensure we have enough data
+        hist = company.history(period="2mo", interval="1d")
+        print("DEBUG: Historical data shape:", hist.shape)
+        print("DEBUG: Historical data columns:", hist.columns)
+        print("DEBUG: Historical data index:", hist.index)
+        print("DEBUG: Historical data sample:", hist.head())
+        print("DEBUG: Last 5 dates:", hist.index[-5:])
 
         if hist.empty:
             print(f"No historical data found for {ticker_symbol}")
@@ -225,7 +230,9 @@ def get_financial_data(ticker_symbol, period="1mo"):
         # Convert historical data to dictionary format with proper date formatting
         historical_data = {}
         for date, row in hist.iterrows():
-            date_str = date.strftime('%Y-%m-%d')
+            # Convert to EST timezone for consistency
+            est_date = date.tz_localize('UTC').tz_convert('US/Eastern')
+            date_str = est_date.strftime('%Y-%m-%d')
             historical_data[date_str] = {
                 'Open': float(row['Open']),
                 'High': float(row['High']),
@@ -233,6 +240,8 @@ def get_financial_data(ticker_symbol, period="1mo"):
                 'Close': float(row['Close']),
                 'Volume': float(row['Volume'])
             }
+
+        print("DEBUG: Processed historical data keys:", list(historical_data.keys())[-5:])  # Show last 5 dates
 
         data = {
             "ticker": ticker_symbol,
@@ -965,7 +974,9 @@ def run_pipeline(ticker, force_refresh=False):
                 last_run_time = parser.isoparse(last_run_time)
             if last_run_time.tzinfo is None:
                 last_run_time = last_run_time.replace(tzinfo=timezone.utc)
-            if now_utc - last_run_time < timedelta(hours=24):
+            
+            # Check if cache is still valid (less than 1 hour old)
+            if now_utc - last_run_time < timedelta(hours=1):
                 recent_data = conn.execute(
                     text("SELECT * FROM data WHERE `company_info.ticker` = :ticker ORDER BY last_run DESC LIMIT 1"),
                     {"ticker": ticker}
@@ -999,16 +1010,18 @@ def run_pipeline(ticker, force_refresh=False):
                         except json.JSONDecodeError as e:
                             print(f"DEBUG: Error parsing historical_data: {e}")
                     
+                    # Ensure last_run is set
+                    reconstructed_data['last_run'] = last_run_time.isoformat()
                     return reconstructed_data
                 else:
                     pipeline_steps[-1]["status"] = "completed"
                     pipeline_steps[-1]["message"] = "No cached data found"
             else:
                 pipeline_steps[-1]["status"] = "completed"
-                pipeline_steps[-1]["message"] = "Cache expired"
+                pipeline_steps[-1]["message"] = "Cache expired, running pipeline"
         else:
             pipeline_steps[-1]["status"] = "completed"
-            pipeline_steps[-1]["message"] = "Force refresh requested"
+            pipeline_steps[-1]["message"] = "Force refresh requested, running pipeline"
 
     # Step 1: Financial data
     pipeline_steps.append({"step": "Fetching company info", "status": "running"})
@@ -1087,8 +1100,11 @@ def run_pipeline(ticker, force_refresh=False):
         df_flat = pd.DataFrame([flattened])
 
         with engine.begin() as conn:
+            # Delete old data for this ticker
             conn.execute(text("DELETE FROM data WHERE `company_info.ticker` = :ticker"), {"ticker": ticker})
+            # Insert new data
             df_flat.to_sql("data", con=conn, if_exists="append", index=False)
+            # Fetch the newly inserted data
             recent_data = conn.execute(
                 text("SELECT * FROM data WHERE `company_info.ticker` = :ticker ORDER BY last_run DESC LIMIT 1"),
                 {"ticker": ticker}
@@ -1120,6 +1136,8 @@ def run_pipeline(ticker, force_refresh=False):
                     except json.JSONDecodeError as e:
                         print(f"DEBUG: Error parsing historical_data: {e}")
                 
+                # Ensure last_run is set
+                reconstructed_data['last_run'] = now_utc.isoformat()
                 return reconstructed_data
             else:
                 raise ValueError(f"No recent data found in DB for {ticker}")
@@ -1128,6 +1146,36 @@ def run_pipeline(ticker, force_refresh=False):
         print(f"DEBUG: Error type: {type(e)}")
         print(f"DEBUG: Error details: {str(e)}")
         raise
+
+def get_current_price(ticker_symbol):
+    """
+    Get current stock price using Finnhub
+    """
+    try:
+        # Get quote data from Finnhub
+        quote = finnhub_client.quote(ticker_symbol)
+        
+        if not quote or 'c' not in quote:
+            return {
+                "error": f"No price data found for {ticker_symbol}",
+                "ticker": ticker_symbol
+            }
+            
+        return {
+            "ticker": ticker_symbol,
+            "current_price": float(quote['c']),
+            "change": float(quote['dp']),  # Daily percentage change
+            "high": float(quote['h']),     # High price of the day
+            "low": float(quote['l']),      # Low price of the day
+            "open": float(quote['o']),     # Opening price
+            "previous_close": float(quote['pc'])  # Previous closing price
+        }
+    except Exception as e:
+        print(f"Error retrieving current price: {e}")
+        return {
+            "error": f"Error retrieving data for {ticker_symbol}: {str(e)}",
+            "ticker": ticker_symbol
+        }
 
 app = Flask(__name__)
 
@@ -1240,6 +1288,21 @@ def analyze():
         return jsonify({
             "error": f"Internal server error: {str(e)}",
             "status": "error"
+        }), 500
+
+@app.route('/api/price/<ticker>', methods=['GET'])
+def get_price(ticker):
+    """Get current stock price endpoint"""
+    try:
+        data = get_current_price(ticker)
+        return jsonify({
+            "status": "success",
+            "data": data
+        })
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "error": str(e)
         }), 500
 
 # Error handlers

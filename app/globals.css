@@ -2,6 +2,130 @@
 @tailwind components;
 @tailwind utilities;
 
+@font-face {
+  font-family: 'PPTelegraf';
+  src: url('https://andrewma.b-cdn.net/fonts/tradevision/PPTelegraf-Black.woff2') format('woff2');
+  font-weight: 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'PPTelegraf';
+  src: url('https://andrewma.b-cdn.net/fonts/tradevision/PPTelegraf-BlackOblique.woff2') format('woff2');
+  font-weight: 900;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'PPTelegraf';
+  src: url('https://andrewma.b-cdn.net/fonts/tradevision/PPTelegraf-BlackSlanted.woff2') format('woff2');
+  font-weight: 900;
+  font-style: oblique;
+  font-display: swap;
+}
+
+/* PPTelegraf Bold */
+@font-face {
+  font-family: 'PPTelegraf';
+  src: url('https://andrewma.b-cdn.net/fonts/tradevision/PPTelegraf-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'PPTelegraf';
+  src: url('https://andrewma.b-cdn.net/fonts/tradevision/PPTelegraf-BoldOblique.woff2') format('woff2');
+  font-weight: 700;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'PPTelegraf';
+  src: url('https://andrewma.b-cdn.net/fonts/tradevision/PPTelegraf-BoldSlanted.woff2') format('woff2');
+  font-weight: 700;
+  font-style: oblique;
+  font-display: swap;
+}
+
+/* PPTelegraf Regular */
+@font-face {
+  font-family: 'PPTelegraf';
+  src: url('https://andrewma.b-cdn.net/fonts/tradevision/PPTelegraf-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'PPTelegraf';
+  src: url('https://andrewma.b-cdn.net/fonts/tradevision/PPTelegraf-RegularOblique.woff2') format('woff2');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'PPTelegraf';
+  src: url('https://andrewma.b-cdn.net/fonts/tradevision/PPTelegraf-RegularSlanted.woff2') format('woff2');
+  font-weight: 400;
+  font-style: oblique;
+  font-display: swap;
+}
+
+/* PPTelegraf Ultrabold */
+@font-face {
+  font-family: 'PPTelegraf';
+  src: url('https://andrewma.b-cdn.net/fonts/tradevision/PPTelegraf-Ultrabold.woff2') format('woff2');
+  font-weight: 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'PPTelegraf';
+  src: url('https://andrewma.b-cdn.net/fonts/tradevision/PPTelegraf-UltraboldOblique.woff2') format('woff2');
+  font-weight: 800;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'PPTelegraf';
+  src: url('https://andrewma.b-cdn.net/fonts/tradevision/PPTelegraf-UltraboldSlanted.woff2') format('woff2');
+  font-weight: 800;
+  font-style: oblique;
+  font-display: swap;
+}
+
+/* PPTelegraf Ultralight */
+@font-face {
+  font-family: 'PPTelegraf';
+  src: url('https://andrewma.b-cdn.net/fonts/tradevision/PPTelegraf-Ultralight.woff2') format('woff2');
+  font-weight: 200;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'PPTelegraf';
+  src: url('https://andrewma.b-cdn.net/fonts/tradevision/PPTelegraf-UltralightOblique.woff2') format('woff2');
+  font-weight: 200;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'PPTelegraf';
+  src: url('https://andrewma.b-cdn.net/fonts/tradevision/PPTelegraf-UltralightSlanted.woff2') format('woff2');
+  font-weight: 200;
+  font-style: oblique;
+  font-display: swap;
+}
+
 @layer base {
   :root {
     --background: 0 0% 100%;
@@ -71,6 +195,12 @@
     @apply border-border;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground font-sans;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-sans font-bold;
+  }
+  p, span, div {
+    @apply font-sans;
   }
 }

@@ -7,7 +7,7 @@ import {
   ChartLegendContent,
 } from "@/components/ui/chart";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, HelpCircle } from "lucide-react";
 import {
   Area,
   AreaChart,
@@ -67,122 +67,7 @@ interface StockChartProps {
   pipelineSteps?: Array<{ step: string; status: string; message?: string }>;
 }
 
-// ScoreCircle component
-function ScoreCircle({ score }: { score: number }) {
-  const radius = 36;
-  const stroke = 8;
-  const normalizedRadius = radius - stroke / 2;
-  const circumference = normalizedRadius * 2 * Math.PI;
-  const target = Math.max(0, Math.min(score, 100));
 
-  // Get color based on score
-  const getScoreColor = (score: number) => {
-    if (score >= 50) return "#22c55e"; // green
-    if (score >= 30) return "#eab308"; // yellow
-    return "#ef4444"; // red
-  };
-
-  // Get tooltip message based on score
-  const getTooltipMessage = (score: number) => {
-    if (score >= 50) {
-      return "This score indicates a strong positive sentiment with high market confidence, suggesting favorable conditions for investment.";
-    }
-    if (score >= 30) {
-      return "This score shows moderate market sentiment with mixed signals, suggesting cautious consideration before investment.";
-    }
-    return "This score indicates concerning market sentiment with potential risks, suggesting careful evaluation before investment.";
-  };
-
-  // Animation state
-  const [animatedScore, setAnimatedScore] = React.useState(0);
-
-  React.useEffect(() => {
-    let frame: number;
-    let start: number | null = null;
-    const duration = 900; // ms
-    const initial = animatedScore;
-    const diff = target - initial;
-
-    function animate(ts: number) {
-      if (start === null) start = ts;
-      const elapsed = ts - start;
-      const progress = Math.min(elapsed / duration, 1);
-      setAnimatedScore(initial + diff * progress);
-      if (progress < 1) {
-        frame = requestAnimationFrame(animate);
-      } else {
-        setAnimatedScore(target);
-      }
-    }
-    frame = requestAnimationFrame(animate);
-    return () => cancelAnimationFrame(frame);
-    // eslint-disable-next-line
-  }, [target]);
-
-  const strokeDashoffset = circumference - (animatedScore / 100) * circumference;
-  const scoreColor = getScoreColor(animatedScore);
-
-  return (
-    <HoverCard openDelay={0} closeDelay={0}>
-      <HoverCardTrigger asChild>
-        <div className="cursor-help group">
-          <svg 
-            height={radius * 2 + 4} 
-            width={radius * 2 + 4} 
-            viewBox={`0 0 ${radius * 2 + 4} ${radius * 2 + 4}`}
-            className="translate-x-[-2px] translate-y-[-2px]"
-          >
-            <circle
-              stroke="#e5e7eb"
-              fill="transparent"
-              strokeWidth={stroke}
-              r={normalizedRadius}
-              cx={radius + 2}
-              cy={radius + 2}
-              className="transition-all duration-200 group-hover:stroke-[10px]"
-            />
-            <circle
-              stroke={scoreColor}
-              fill="transparent"
-              strokeWidth={stroke}
-              strokeLinecap="round"
-              strokeDasharray={circumference + ' ' + circumference}
-              style={{ 
-                strokeDashoffset, 
-                transition: 'stroke-dashoffset 0.5s, stroke 0.5s, stroke-width 0.2s',
-                transform: 'rotate(-90deg)',
-                transformOrigin: 'center'
-              }}
-              r={normalizedRadius}
-              cx={radius + 2}
-              cy={radius + 2}
-              className="transition-all duration-200 group-hover:stroke-[10px]"
-            />
-            <text
-              x={radius + 2}
-              y={radius + 2}
-              textAnchor="middle"
-              dominantBaseline="middle"
-              fontSize="1.5rem"
-              fontWeight="bold"
-              fill="#222"
-            >
-              {Math.round(animatedScore)}
-            </text>
-          </svg>
-        </div>
-      </HoverCardTrigger>
-      <HoverCardContent className="w-80">
-        <div className="space-y-2">
-          <h4 className="text-sm font-semibold">Hype Index Score: {Math.round(animatedScore)}</h4>
-          <p className="text-sm text-muted-foreground">
-            {getTooltipMessage(animatedScore)}
-          </p>
-        </div>
-      </HoverCardContent>
-    </HoverCard>
-  );
-}
 
 export default function StockChart({ data, companyInfo, onRefresh, loading, status, pipelineSteps }: StockChartProps) {
   console.log("DEBUG: StockChart props:", { status, pipelineSteps });
@@ -235,23 +120,35 @@ export default function StockChart({ data, companyInfo, onRefresh, loading, stat
   console.log("DEBUG: StockChart financial_data:", data.financial_data);
   console.log("DEBUG: StockChart historical_data:", data.financial_data.historical_data);
 
-  // Convert historical data to array format for charting
-  const historicalData = Object.entries(data.financial_data.historical_data)
-    .map(([date, values]) => ({
-      date,
-      ...values
-    }))
-    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  // Process historical data for charting
+  const processHistoricalData = () => {
+    if (!data?.financial_data?.historical_data) return [];
 
-  console.log("DEBUG: StockChart processed historical data:", historicalData);
+    // Convert historical data to array format for charting
+    const chartData = Object.entries(data.financial_data.historical_data).map(([date, values]) => {
+      // Parse the date and convert to local timezone
+      const localDate = new Date(date + 'T00:00:00-04:00'); // EST timezone
+      return {
+        date: localDate.toISOString().split('T')[0], // Ensure consistent date format
+        ...values
+      };
+    });
 
-  if (historicalData.length === 0) {
-    console.log("DEBUG: StockChart no data points after processing");
-    return null;
-  }
+    // Sort by date
+    chartData.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-  // Get the most recent day's data
-  const currentDayData = historicalData[historicalData.length - 1];
+    console.log("DEBUG: Processed historical data:", chartData.slice(-5)); // Show last 5 data points
+    console.log("DEBUG: Current time:", new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+
+    return chartData;
+  };
+
+  const chartData = processHistoricalData();
+  const currentDayData = chartData[chartData.length - 1];
+  const previousDayData = chartData[chartData.length - 2];
+
+  console.log("DEBUG: Current day data:", currentDayData);
+  console.log("DEBUG: Previous day data:", previousDayData);
 
   const toggleSeries = (series: keyof typeof selectedSeries) => {
     setSelectedSeries(prev => {
@@ -280,151 +177,55 @@ export default function StockChart({ data, companyInfo, onRefresh, loading, stat
 
   return (
     <div className="space-y-8">
-      {/* Company Information */}
-      {companyInfo && (
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <div className="flex items-center gap-3">
-              <CardTitle className="flex items-center gap-2">
-                {companyInfo.name} ({companyInfo.ticker})
-              </CardTitle>
-              {onRefresh && (
-                <button
-                  onClick={onRefresh}
-                  className="ml-2 p-2 rounded-full bg-blue-50 hover:bg-blue-100 transition-colors flex items-center justify-center group"
-                  title="Refresh"
-                  disabled={loading}
-                  style={{ lineHeight: 0 }}
-                >
-                  <svg
-                    className={`w-4 h-4 text-blue-600 ${loading ? 'animate-spin' : ''}`}
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                    />
-                  </svg>
-                </button>
-              )}
-            </div>
-          </CardHeader>
-          <CardContent>
-            {companyInfo.error ? (
-              <div className="text-red-500 text-center py-4">
-                {companyInfo.error}
-              </div>
-            ) : (
-              <div className="flex items-start justify-between">
-                {/* Company Details */}
-                <div className="flex-1">
-                  <div className="grid grid-cols-3 gap-x-2 gap-y-4">
-                    <div className="space-y-4">
-                      {companyInfo.sector && (
-                        <div>
-                          <p className="text-sm text-muted-foreground">Sector</p>
-                          <p className="text-base">{companyInfo.sector}</p>
-                        </div>
-                      )}
-                      {companyInfo.industry && (
-                        <div>
-                          <p className="text-sm text-muted-foreground">Industry</p>
-                          <p className="text-base">{companyInfo.industry}</p>
-                        </div>
-                      )}
-                    </div>
-                    <div className="space-y-4">
-                      {companyInfo.marketCap && (
-                        <div>
-                          <p className="text-sm text-muted-foreground">Market Cap</p>
-                          <p className="text-base">
-                            {companyInfo.marketCap > 0 
-                              ? companyInfo.marketCap >= 1000000 
-                                ? `$${(companyInfo.marketCap / 1000000).toFixed(2)}T`
-                                : `$${(companyInfo.marketCap / 1000).toFixed(2)}B`
-                              : "N/A"}
-                          </p>
-                        </div>
-                      )}
-                      {companyInfo.exchange && (
-                        <div>
-                          <p className="text-sm text-muted-foreground">Exchange</p>
-                          <p className="text-base">{companyInfo.exchange}</p>
-                        </div>
-                      )}
-                    </div>
-                    <div className="space-y-4">
-                      {companyInfo.ipo && (
-                        <div>
-                          <p className="text-sm text-muted-foreground">IPO Date</p>
-                          <p className="text-base">
-                            {new Date(companyInfo.ipo).toLocaleDateString('en-US', {
-                              year: 'numeric',
-                              month: 'long',
-                              day: 'numeric'
-                            })}
-                          </p>
-                        </div>
-                      )}
-                      {companyInfo.url && (
-                        <div>
-                          <p className="text-sm text-muted-foreground">Website</p>
-                          <a 
-                            href={companyInfo.url} 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            className="text-base text-blue-600 hover:underline"
-                          >
-                            {companyInfo.url}
-                          </a>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  {companyInfo.description && (
-                    <div className="mt-4">
-                      <p className="text-sm text-muted-foreground">Description</p>
-                      <p className="text-base line-clamp-3">{companyInfo.description}</p>
-                    </div>
-                  )}
-                </div>
-                {/* Hype Index Score Circle */}
-                <div className="flex flex-col items-center justify-start ml-16 -mt-2">
-                  <ScoreCircle score={hypeIndex} />
-                  <div className="mt-2 text-sm text-muted-foreground text-center">Hype Index<br /><span className="text-xs">(combined score)</span></div>
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
+      
 
       {/* Price Range & Volume with Current Day Data */}
       <Card>
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>Price Range & Volume</CardTitle>
+          <HoverCard openDelay={0} closeDelay={0}>
+            <HoverCardTrigger asChild>
+              <button className="p-2 hover:bg-muted rounded-full transition-colors">
+                <HelpCircle className="h-5 w-5 text-muted-foreground" />
+              </button>
+            </HoverCardTrigger>
+            <HoverCardContent className="w-80">
+              <div className="space-y-4">
+                <h4 className="text-sm font-semibold">Understanding OHLC & Volume</h4>
+                <div className="space-y-2">
+                  <div>
+                    <p className="text-sm font-medium">OHLC (Open, High, Low, Close)</p>
+                    <ul className="text-sm text-muted-foreground list-disc pl-4 space-y-1">
+                      <li><span className="text-[#f59e42]">Open</span>: The first trading price of the period</li>
+                      <li><span className="text-[#22c55e]">High</span>: The highest trading price of the period</li>
+                      <li><span className="text-[#ef4444]">Low</span>: The lowest trading price of the period</li>
+                      <li><span className="text-[#6366f1]">Close</span>: The last trading price of the period</li>
+                    </ul>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium">Volume</p>
+                    <p className="text-sm text-muted-foreground">
+                      The total number of shares traded during the period. Higher volume often indicates stronger price movements and more significant market activity.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </HoverCardContent>
+          </HoverCard>
         </CardHeader>
         <CardContent>
           <div className="space-y-6">
             {/* Graph */}
             <div className="h-[400px]">
               <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={historicalData}>
+                <ComposedChart data={chartData}>
                   <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                   <XAxis
                     dataKey="date"
                     className="text-xs text-muted-foreground"
                     tickFormatter={(value) => {
-                      if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
-                        const date = new Date(value + 'T00:00:00Z');
-                        return date instanceof Date && !isNaN(date.getTime()) ? date.toLocaleDateString() : value.toString();
-                      }
-                      const date = new Date(value as string);
-                      return date instanceof Date && !isNaN(date.getTime()) ? date.toLocaleDateString() : value.toString();
+                      const date = new Date(value);
+                      return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
                     }}
                   />
                   <YAxis
@@ -446,6 +247,14 @@ export default function StockChart({ data, companyInfo, onRefresh, loading, stat
                         ? value.toLocaleString()
                         : `$${value.toFixed(2)}`;
                       return [formattedValue, name.replace(/\s+/g, '')];
+                    }}
+                    labelFormatter={(label) => {
+                      const date = new Date(label);
+                      return date.toLocaleDateString(undefined, { 
+                        year: 'numeric',
+                        month: 'short',
+                        day: 'numeric'
+                      });
                     }}
                   />
                   {selectedSeries.Volume && (
@@ -512,7 +321,13 @@ export default function StockChart({ data, companyInfo, onRefresh, loading, stat
               <div className="grid grid-cols-5 gap-4">
                 <div className="space-y-1">
                   <p className="text-sm text-muted-foreground">Date</p>
-                  <p className="text-lg font-medium">{new Date(currentDayData.date).toLocaleDateString()}</p>
+                  <p className="text-lg font-medium">
+                    {new Date(currentDayData.date).toLocaleDateString(undefined, {
+                      year: 'numeric',
+                      month: 'short',
+                      day: 'numeric'
+                    })}
+                  </p>
                 </div>
                 <div 
                   className="space-y-1 cursor-pointer" 
