@@ -4,6 +4,13 @@ import { API_BASE_URL } from '../app/api/stock-service';
 import { Button } from "@/components/ui/button";
 import StockHeaderCard from './StockHeaderCard';
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
+import { toast } from "sonner";
+
+interface PipelineStep {
+  step: string;
+  status: 'started' | 'success' | 'error' | 'info';
+  message?: string;
+}
 
 interface AnalyzeStockProps {
   searchValue: string;
@@ -56,6 +63,7 @@ export default function AnalyzeStock({ searchValue }: AnalyzeStockProps) {
   const [result, setResult] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [pipelineSteps, setPipelineSteps] = useState<PipelineStep[]>([]);
 
   // Add initial data fetch when component mounts or searchValue changes
   React.useEffect(() => {
@@ -70,53 +78,134 @@ export default function AnalyzeStock({ searchValue }: AnalyzeStockProps) {
     setLoading(true);
     setError("");
     setResult(null);
+    setPipelineSteps([]);
+
+    // Show initial toast
+    toast.info(`Starting analysis for ${searchValue}...`);
 
     try {
-      console.log('Making request to:', `${API_BASE_URL}/analyze`); // Debug log
+      // Create a POST request with the parameters in the body
       const response = await fetch(`${API_BASE_URL}/analyze`, {
-        method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          "Accept": "application/json"
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'text/event-stream',
         },
-        mode: 'cors',  // Explicitly set CORS mode
-        credentials: 'omit',  // Don't send credentials
-        body: JSON.stringify({ 
+        mode: 'cors',
+        credentials: 'include',
+        body: JSON.stringify({
           symbol: searchValue,
-          force_refresh: forceRefresh 
-        }),
+          force_refresh: forceRefresh
+        })
       });
 
       if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`API error: ${response.status} ${response.statusText} - ${errorText}`);
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
       }
 
-      const data = await response.json();
-      console.log("DEBUG: Received data from API:", data);
-      
-      // Update to handle new response format
-      if (data.result) {
-        // Ensure last_run is set
-        if (!data.result.last_run) {
-          data.result.last_run = new Date().toISOString();
-        }
+      if (!response.body) {
+        throw new Error('No response body available');
       }
-      
-      setResult({
-        message: data.message,
-        results: {
-          [searchValue.toUpperCase()]: {
-            result: data.result,
-            status: data.status
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          
+          if (done) {
+            // Process any remaining data in the buffer
+            if (buffer.trim()) {
+              const lines = buffer.split('\n\n');
+              for (const line of lines) {
+                if (line.trim()) {
+                  const [eventLine, dataLine] = line.split('\n');
+                  const data = JSON.parse(dataLine.replace('data: ', ''));
+                  handleSSEMessage(data);
+                }
+              }
+            }
+            break;
+          }
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (line.trim()) {
+              const [eventLine, dataLine] = line.split('\n');
+              const data = JSON.parse(dataLine.replace('data: ', ''));
+              handleSSEMessage(data);
+            }
           }
         }
-      });
+      } catch (error) {
+        console.error('Error reading stream:', error);
+        throw error;
+      } finally {
+        reader.releaseLock();
+      }
     } catch (err) {
-      console.error("DEBUG: Error in handleAnalyze:", err);
+      console.error("Error in handleAnalyze:", err);
       setError(err instanceof Error ? err.message : "Unknown error");
-    } finally {
+      toast.error(err instanceof Error ? err.message : "Unknown error");
       setLoading(false);
+    }
+  };
+
+  const handleSSEMessage = (data: any) => {
+    console.log("Received SSE message:", data);
+    
+    if (data.step === 'complete') {
+      if (data.status === 'success' && data.data) {
+        setResult({
+          message: "Analysis complete",
+          results: {
+            [searchValue.toUpperCase()]: {
+              result: data.data,
+              status: "completed"
+            }
+          }
+        });
+        toast.success("Analysis complete!");
+      } else if (data.status === 'error') {
+        setError(data.message || "An error occurred during analysis");
+        toast.error(data.message || "An error occurred during analysis");
+      }
+      setLoading(false);
+    } else {
+      // Update pipeline steps
+      setPipelineSteps(prev => {
+        const existingStepIndex = prev.findIndex(step => step.step === data.step);
+        if (existingStepIndex >= 0) {
+          const newSteps = [...prev];
+          newSteps[existingStepIndex] = {
+            step: data.step,
+            status: data.status,
+            message: data.message
+          };
+          return newSteps;
+        } else {
+          return [...prev, {
+            step: data.step,
+            status: data.status,
+            message: data.message
+          }];
+        }
+      });
+
+      // Show toast for step update
+      if (data.status === 'started') {
+        toast.info(data.message);
+      } else if (data.status === 'success') {
+        toast.success(data.message);
+      } else if (data.status === 'error') {
+        toast.error(data.message);
+      }
     }
   };
 
@@ -158,7 +247,11 @@ export default function AnalyzeStock({ searchValue }: AnalyzeStockProps) {
         {loading && (
           <div className="flex items-center justify-center h-[400px]">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
-            <p className="ml-3 text-gray-500">Analyzing {searchValue}...</p>
+            <p className="ml-3 text-gray-500">
+              {pipelineSteps.length > 0 
+                ? `${pipelineSteps[pipelineSteps.length - 1].message}...`
+                : `Analyzing ${searchValue}...`}
+            </p>
           </div>
         )}
         
@@ -186,7 +279,10 @@ export default function AnalyzeStock({ searchValue }: AnalyzeStockProps) {
                 const change = typeof financialData?.price_change === 'number'
                   ? financialData.price_change
                   : (typeof financialData?.change === 'number' ? financialData.change : 0);
-                const companyInfo = stockData.company_info || { name: searchValue.toUpperCase() };
+                const companyInfo = {
+                  ...stockData.company_info || { name: searchValue.toUpperCase() },
+                  description: financialData?.description
+                };
                 const ticker = (companyInfo as any).ticker || searchValue.toUpperCase();
                 const hypeIndex = stockData.scores?.hype_index;
                 return (
@@ -206,6 +302,7 @@ export default function AnalyzeStock({ searchValue }: AnalyzeStockProps) {
                 onRefresh={handleRefresh}
                 loading={loading}
                 status={result.results[searchValue.toUpperCase()]?.status}
+                pipelineSteps={pipelineSteps}
               />
               
               <Accordion type="single" collapsible className="bg-white rounded-lg shadow">

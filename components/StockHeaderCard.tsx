@@ -20,6 +20,7 @@ interface StockHeaderCardProps {
     exchange?: string;
     ipo?: string;
     url?: string;
+    description?: string;
   };
   hypeIndex?: number;
   lastRun?: string;
@@ -82,7 +83,7 @@ export default function StockHeaderCard({
             <HoverCardTrigger asChild>
               <span className="text-4xl font-bold tracking-tight cursor-help">{ticker}</span>
             </HoverCardTrigger>
-            <HoverCardContent className="w-80">
+            <HoverCardContent className="w-80 z-50">
               <div className="space-y-2">
                 <h4 className="text-sm font-semibold">Stock Ticker</h4>
                 <p className="text-sm text-muted-foreground">
@@ -142,7 +143,7 @@ export default function StockHeaderCard({
       </div>
 
       <Card>
-        <CardContent className="flex flex-col md:flex-row md:items-center md:justify-between gap-6 p-6">
+        <CardContent className="flex flex-col md:flex-row md:items-start md:justify-between gap-6 p-6">
           <div className="flex-1 min-w-0">
             <div className="text-xl font-semibold mb-2">
               {companyInfo.name}
@@ -177,13 +178,18 @@ export default function StockHeaderCard({
                 ) : "-"}
               </div>
             </div>
+            {companyInfo.description && (
+              <div className="text-sm text-muted-foreground mt-4 line-clamp-3">
+                {companyInfo.description}
+              </div>
+            )}
             {lastRun && (
               <div className="mt-4 text-sm text-muted-foreground">
-                Last updated: {formatLastRun(lastRun)}
+                Last updated: {formatLastRun(lastRun)}. Data is updated hourly by request.
               </div>
             )}
           </div>
-          <div className="flex flex-col items-center justify-start ml-16 -mt-2">
+          <div className="flex flex-col items-center justify-start">
             <ScoreCircle score={hypeIndex ?? 0} />
             <div className="mt-2 text-sm text-muted-foreground text-center">Hype Index<br /><span className="text-xs">(combined score)</span></div>
           </div>

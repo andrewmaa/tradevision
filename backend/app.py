@@ -1,23 +1,33 @@
+# Standard library imports
 import os
-from dotenv import load_dotenv
-load_dotenv()  # This will load variables from a .env file if present
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-from sqlalchemy import create_engine, text
-from io import StringIO
-from sqlalchemy import create_engine
-from sqlalchemy import text
-from flask import Flask, request, jsonify, make_response
-from flask_cors import CORS
-import pymysql
+import sys
 import json
-from datetime import date, datetime
-import nltk
 import tempfile
 import logging
-import sys
+from io import StringIO
+from datetime import date, datetime, timedelta, timezone
+from dateutil import parser
+
+# Third-party imports
+import nltk
+import praw
+import finnhub
+import openai
+import pandas as pd
+import pymysql
+import requests
+import matplotlib.pyplot as plt
+import seaborn as sns
+from dotenv import load_dotenv
+from flask import Flask, request, jsonify, make_response, Response, stream_with_context
+from flask_cors import CORS
+from sqlalchemy import create_engine, text
 from curl_cffi import requests as curl_requests
+from nltk.sentiment.vader import SentimentIntensityAnalyzer
+import yfinance as yf
+
+# Load environment variables
+load_dotenv()  # This will load variables from a .env file if present
 
 # Configure logging
 logging.basicConfig(
@@ -57,6 +67,15 @@ except LookupError:
 
 # Configure PyMySQL
 pymysql.install_as_MySQLdb()
+
+# Initialize API clients and keys
+finnhub_client = finnhub.Client(os.environ.get("FINNHUB_API_KEY"))
+api_key = os.environ.get("NEWS_API_KEY")
+openai_api_key = os.environ.get("OPENAI_API_KEY")
+reddit_client_id = os.environ.get("REDDIT_CLIENT_ID")
+reddit_client_secret = os.environ.get("REDDIT_CLIENT_SECRET")
+reddit_user_agent = os.environ.get("REDDIT_USER_AGENT")
+alpha_vantage_api_key = "LBYM2R0I3R8S52UA"
 
 try:
     # Use pymysql explicitly in the connection string
@@ -203,6 +222,10 @@ def get_financial_data(ticker_symbol, period="1mo"):
         print("DEBUG: Creating Ticker with session")
         company = yf.Ticker(ticker_symbol, session=session)
         
+        # Get company description
+        stock = yf.Ticker(ticker_symbol, session=session)
+        description = stock.info.get('longBusinessSummary', 'No description available')
+        
         print("DEBUG: Fetching historical data")
         # Use a longer period to ensure we have enough data
         hist = company.history(period="2mo", interval="1d")
@@ -258,7 +281,8 @@ def get_financial_data(ticker_symbol, period="1mo"):
             "price_change": float(((latest["Close"] - prev_day['Close']) / prev_day['Close']) * 100),
             "trading_volume": float(latest["Volume"]),
             "volatility": float(volatility),
-            "historical_data": historical_data
+            "historical_data": historical_data,
+            "description": description
         }
 
         print("DEBUG: Financial data structure:", json.dumps(data, indent=2))
@@ -893,18 +917,7 @@ def get_alpha_vantage_trending():
         return []
 
 
-'''print("Top Gaining Stocks to Consider Adding to Your Portfolio:")
-print(get_alpha_vantage_trending())'''
 
-"""## Description of Companies"""
-
-import yfinance as yf
-
-def get_company_description_from_yf(ticker):
-    stock = yf.Ticker(ticker, session=session)
-    return stock.info.get('longName', 'No description available')
-
-'''print(get_company_description_from_yf("AAPL"))'''
 
 """# Frontend"""
 
@@ -934,13 +947,39 @@ def flatten_nested_dict(d, parent_key='', sep='.'):
             # Convert datetime objects to ISO format strings
             items.append((new_key, v.isoformat()))
         else:
+            # Handle all other types
             items.append((new_key, v))
     return dict(items)
 
+def parse_timestamp(timestamp_str):
+    """Helper function to parse timestamps from database"""
+    if not timestamp_str:
+        return None
+        
+    try:
+        # If timestamp is already a datetime object, return it
+        if isinstance(timestamp_str, (datetime, date)):
+            return timestamp_str
+            
+        # Convert to string if it's not already
+        if not isinstance(timestamp_str, str):
+            timestamp_str = str(timestamp_str)
+            
+        # Try parsing as ISO format first
+        return datetime.fromisoformat(timestamp_str)
+    except ValueError:
+        try:
+            # Try parsing as MySQL datetime format
+            return datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S')
+        except ValueError:
+            try:
+                # Try parsing as MySQL datetime with microseconds
+                return datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S.%f')
+            except ValueError:
+                logger.error(f"Could not parse timestamp: {timestamp_str}")
+                return None
+
 def run_pipeline(ticker, force_refresh=False):
-    from datetime import datetime, timedelta, timezone
-    from dateutil import parser
-    import json
 
     """Run complete analysis pipeline and print results at each step"""
     now_utc = datetime.now(timezone.utc)
@@ -987,12 +1026,13 @@ def run_pipeline(ticker, force_refresh=False):
                             reconstructed_data[key] = value
                     
                     # Parse JSON strings back into objects
-                    if 'financial_data' in reconstructed_data and 'historical_data' in reconstructed_data['financial_data']:
-                        try:
-                            historical_data = json.loads(reconstructed_data['financial_data']['historical_data'])
-                            reconstructed_data['financial_data']['historical_data'] = historical_data
-                        except json.JSONDecodeError as e:
-                            print(f"DEBUG: Error parsing historical_data: {e}")
+                    if 'financial_data' in reconstructed_data:
+                        if 'historical_data' in reconstructed_data['financial_data']:
+                            try:
+                                historical_data = json.loads(reconstructed_data['financial_data']['historical_data'])
+                                reconstructed_data['financial_data']['historical_data'] = historical_data
+                            except json.JSONDecodeError as e:
+                                print(f"DEBUG: Error parsing historical_data: {e}")
                     
                     # Ensure last_run is set
                     reconstructed_data['last_run'] = last_run_time.isoformat()
@@ -1118,9 +1158,23 @@ CORS(app,
          "origins": ["https://tradevision-kappa.vercel.app", "http://localhost:3000"],
          "methods": ["GET", "POST", "OPTIONS"],
          "allow_headers": ["Content-Type", "Authorization", "Accept"],
-         "supports_credentials": False,
-         "expose_headers": ["Content-Type", "Authorization"]
+         "supports_credentials": True,
+         "expose_headers": ["Content-Type", "Authorization"],
+         "max_age": 3600,
+         "send_wildcard": False,
+         "vary_header": True,
+         "supports_credentials": True,
+         "allow_credentials": True
      }})
+
+# Add CORS headers to all responses
+@app.after_request
+def after_request(response):
+    response.headers.add('Access-Control-Allow-Credentials', 'true')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization,Accept')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
+    response.headers.add('Access-Control-Allow-Origin', 'http://localhost:3000')
+    return response
 
 @app.route('/health', methods=['GET'])
 def health_check():
@@ -1170,46 +1224,195 @@ def test_yf(ticker):
             "error": str(e)
         }), 500
 
-@app.route('/analyze', methods=['POST', 'OPTIONS'])
+def send_sse_message(message, event_type="message"):
+    """Helper function to format SSE messages"""
+    return f"event: {event_type}\ndata: {json.dumps(message, default=json_serial)}\n\n"
+
+@app.route('/analyze', methods=['POST'])
 def analyze():
-    if request.method == "OPTIONS":
-        return make_response(jsonify({"status": "ok"}), 200)
-    
+    """Analyze stock endpoint with SSE support"""
     try:
         data = request.get_json()
         if not data:
-            return jsonify({"error": "No data provided"}), 400
-            
-        symbol = data.get('symbol')
-        force_refresh = data.get('force_refresh', False)
-
-        if not symbol:
-            return jsonify({"error": "No symbol provided"}), 400
-
-        symbol = symbol.strip().upper()
-        
-        try:
-            # Run pipeline
-            raw_result = run_pipeline(symbol, force_refresh=force_refresh)
-            
-            # Check if there's an error in the result
-            has_error = "error" in raw_result
-            
+            logger.error("No JSON data received in request")
             return jsonify({
-                "message": "Pipeline completed.",
-                "result": raw_result,
-                "status": "error" if has_error else "completed"
-            })
-            
-        except Exception as e:
-            print(f"Error processing symbol {symbol}: {str(e)}")
-            return jsonify({
-                "error": str(e),
+                "error": "No JSON data received",
                 "status": "error"
-            }), 500
+            }), 400
+
+        ticker = data.get('symbol', '').upper()
+        if not ticker:
+            logger.error("No symbol provided in request")
+            return jsonify({
+                "error": "No symbol provided",
+                "status": "error"
+            }), 400
+
+        force_refresh = data.get('force_refresh', False)
+        logger.info(f"Starting analysis for {ticker} (force_refresh={force_refresh})")
+
+        def generate():
+            try:
+                # Check cache first
+                now_utc = datetime.now(timezone.utc)
+                with engine.connect() as conn:
+                    last_run = conn.execute(
+                        text("SELECT last_run FROM data WHERE `company_info.ticker` = :ticker ORDER BY last_run DESC LIMIT 1"),
+                        {"ticker": ticker}
+                    ).scalar()
+
+                    if last_run and not force_refresh:
+                        last_run_time = parse_timestamp(last_run)
+                        if last_run_time is None:
+                            logger.error(f"Invalid timestamp format in database: {last_run}")
+                            yield send_sse_message({"step": "cache", "status": "error", "message": "Invalid timestamp format in database"})
+                            return
+                            
+                        if last_run_time.tzinfo is None:
+                            last_run_time = last_run_time.replace(tzinfo=timezone.utc)
+                        
+                        if now_utc - last_run_time < timedelta(hours=1):
+                            logger.info("Using cached data")
+                            yield send_sse_message({"step": "cache", "status": "success", "message": "Using cached data"})
+                            recent_data = conn.execute(
+                                text("SELECT * FROM data WHERE `company_info.ticker` = :ticker ORDER BY last_run DESC LIMIT 1"),
+                                {"ticker": ticker}
+                            ).mappings().fetchone()
+
+                            if recent_data:
+                                recent_data_dict = dict(recent_data)
+                                reconstructed_data = {}
+                                for key, value in recent_data_dict.items():
+                                    if '.' in key:
+                                        parts = key.split('.')
+                                        current = reconstructed_data
+                                        for part in parts[:-1]:
+                                            if part not in current:
+                                                current[part] = {}
+                                            current = current[part]
+                                        current[parts[-1]] = value
+                                    else:
+                                        reconstructed_data[key] = value
+                                
+                                if 'financial_data' in reconstructed_data:
+                                    if 'historical_data' in reconstructed_data['financial_data']:
+                                        try:
+                                            historical_data = json.loads(reconstructed_data['financial_data']['historical_data'])
+                                            reconstructed_data['financial_data']['historical_data'] = historical_data
+                                        except json.JSONDecodeError as e:
+                                            logger.error(f"Error parsing historical_data: {e}")
+                                
+                                reconstructed_data['last_run'] = last_run_time.isoformat()
+                                yield send_sse_message({"step": "complete", "status": "success", "data": reconstructed_data})
+                                return
+                            else:
+                                logger.info("No cached data found")
+                                yield send_sse_message({"step": "cache", "status": "error", "message": "No cached data found"})
+                        else:
+                            logger.info("Cache expired, running pipeline")
+                            yield send_sse_message({"step": "cache", "status": "info", "message": "Cache expired, running pipeline"})
+                    else:
+                        logger.info("Force refresh requested, running pipeline")
+                        yield send_sse_message({"step": "cache", "status": "info", "message": "Force refresh requested, running pipeline"})
+
+                # Step 1: Financial data
+                logger.info("Starting company info fetch")
+                yield send_sse_message({"step": "company_info", "status": "started", "message": "Fetching company info"})
+                company_info = get_company_info(ticker)
+                
+                if "error" in company_info:
+                    logger.error(f"Error in company info: {company_info['error']}")
+                    yield send_sse_message({"step": "company_info", "status": "error", "message": company_info["error"]})
+                    return
+
+                logger.info(f"Got company info for {company_info['name']}")
+                yield send_sse_message({"step": "company_info", "status": "success", "message": f"Got data for {company_info['name']}"})
+
+                # Step 2: Get financial data
+                logger.info("Starting financial data fetch")
+                yield send_sse_message({"step": "financial_data", "status": "started", "message": "Fetching financial data"})
+                financial_data = get_financial_data(ticker, period="1mo")
+                
+                if "error" in financial_data:
+                    logger.error(f"Error in financial data: {financial_data['error']}")
+                    yield send_sse_message({"step": "financial_data", "status": "error", "message": financial_data["error"]})
+                    return
+                    
+                logger.info("Got financial data")
+                yield send_sse_message({"step": "financial_data", "status": "success", "message": "Got financial data"})
+
+                # Step 3: News data
+                logger.info("Starting news analysis")
+                yield send_sse_message({"step": "news", "status": "started", "message": "Analyzing news"})
+                news_data = get_news_and_extract_keywords(company_info['name'], days=2)
+                logger.info(f"Found {len(news_data['articles'])} articles")
+                yield send_sse_message({"step": "news", "status": "success", "message": f"Found {len(news_data['articles'])} articles"})
+
+                # Step 4: Expand keywords with AI
+                logger.info("Starting keyword expansion")
+                yield send_sse_message({"step": "keywords", "status": "started", "message": "Expanding keywords"})
+                top_keywords = [k[0] for k in news_data['top_keywords'][:10]]
+                expanded_data = expand_keywords_and_generate_queries(company_info['name'], top_keywords, company_info.get('industry', 'N/A'))
+                logger.info("Generated search queries")
+                yield send_sse_message({"step": "keywords", "status": "success", "message": "Generated search queries"})
+
+                # Step 5: Scraping social media
+                logger.info("Starting social media analysis")
+                yield send_sse_message({"step": "social", "status": "started", "message": "Analyzing social media"})
+                social_data = scrape_social_media(company_info['name'], expanded_data['search_queries'])
+                logger.info(f"Analyzed {social_data['total_posts']} posts")
+                yield send_sse_message({"step": "social", "status": "success", "message": f"Analyzed {social_data['total_posts']} posts"})
+
+                # Step 6: Calculate metrics
+                logger.info("Starting metrics calculation")
+                yield send_sse_message({"step": "metrics", "status": "started", "message": "Calculating metrics"})
+                scores = calculate_metrics(financial_data, news_data, social_data)
+                logger.info("Calculated all scores")
+                yield send_sse_message({"step": "metrics", "status": "success", "message": "Calculated all scores"})
+
+                # Prepare the response structure
+                res = {
+                    "company_info": company_info,
+                    "financial_data": financial_data,
+                    "news_data": news_data,
+                    "expanded_data": expanded_data,
+                    "social_data": social_data,
+                    "scores": scores,
+                    "last_run": now_utc.isoformat()
+                }
+
+                try:
+                    flattened = flatten_nested_dict(res)
+                    df_flat = pd.DataFrame([flattened])
+
+                    with engine.begin() as conn:
+                        conn.execute(text("DELETE FROM data WHERE `company_info.ticker` = :ticker"), {"ticker": ticker})
+                        df_flat.to_sql("data", con=conn, if_exists="append", index=False)
+                        yield send_sse_message({"step": "complete", "status": "success", "data": res})
+                except Exception as e:
+                    error_msg = f"Error in data processing: {str(e)}"
+                    logger.error(error_msg)
+                    yield send_sse_message({"step": "complete", "status": "error", "message": error_msg})
+                    raise
+
+            except Exception as e:
+                error_msg = f"Error in pipeline: {str(e)}"
+                logger.error(error_msg)
+                yield send_sse_message({"step": "complete", "status": "error", "message": error_msg})
+                raise
+
+        return Response(
+            stream_with_context(generate()),
+            content_type='text/event-stream',
+            headers={
+                'Cache-Control': 'no-cache',
+                'Connection': 'keep-alive',
+                'X-Accel-Buffering': 'no'
+            }
+        )
 
     except Exception as e:
-        print(f"Error in analyze endpoint: {str(e)}")
+        logger.error(f"Error in analyze endpoint: {str(e)}")
         return jsonify({
             "error": f"Internal server error: {str(e)}",
             "status": "error"
@@ -1229,6 +1432,25 @@ def get_price(ticker):
             "status": "error",
             "error": str(e)
         }), 500
+
+
+def get_alpha_vantage_trending():
+    url = f"https://www.alphavantage.co/query?function=TOP_GAINERS_LOSERS&apikey={API_KEY}"
+
+    try:
+        response = requests.get(url, timeout=10)
+        data = response.json()
+
+
+        trending = [
+            f"{stock['ticker']} ({stock['price']})"
+            for stock in data.get('top_gainers', [])
+        ]
+        return trending[:10]
+
+    except Exception as e:
+        print(f"Error with Alpha Vantage: {e}")
+        return []
 
 # Error handlers
 @app.errorhandler(404)

@@ -21,7 +21,7 @@ import {
   ComposedChart,
   Line,
 } from "recharts";
-import { useState } from "react";
+import { useState, ReactElement } from "react";
 import React from "react";
 
 interface StockData {
@@ -67,7 +67,23 @@ interface StockChartProps {
   pipelineSteps?: Array<{ step: string; status: string; message?: string }>;
 }
 
-
+// Add custom dot component
+const CustomDot = (props: any) => {
+  const { cx, cy, payload, selectedDate, dataKey, points, ...rest } = props;
+  if (selectedDate && payload.date === selectedDate) {
+    return (
+      <circle
+        cx={cx}
+        cy={cy}
+        r={4}
+        fill={props.stroke}
+        stroke="#fff"
+        strokeWidth={2}
+      />
+    );
+  }
+  return null;
+};
 
 export default function StockChart({ data, companyInfo, onRefresh, loading, status, pipelineSteps }: StockChartProps) {
   console.log("DEBUG: StockChart props:", { status, pipelineSteps });
@@ -103,6 +119,8 @@ export default function StockChart({ data, companyInfo, onRefresh, loading, stat
     Close: true,
     Volume: true,
   });
+
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
 
   console.log("DEBUG: StockChart received data:", data);
   console.log("DEBUG: StockChart received companyInfo:", companyInfo);
@@ -144,7 +162,9 @@ export default function StockChart({ data, companyInfo, onRefresh, loading, stat
   };
 
   const chartData = processHistoricalData();
-  const currentDayData = chartData[chartData.length - 1];
+  const currentDayData = selectedDate 
+    ? chartData.find(d => d.date === selectedDate) || chartData[chartData.length - 1]
+    : chartData[chartData.length - 1];
   const previousDayData = chartData[chartData.length - 2];
 
   console.log("DEBUG: Current day data:", currentDayData);
@@ -218,7 +238,14 @@ export default function StockChart({ data, companyInfo, onRefresh, loading, stat
             {/* Graph */}
             <div className="h-[400px]">
               <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={chartData}>
+                <ComposedChart 
+                  data={chartData}
+                  onClick={(data) => {
+                    if (data && data.activePayload && data.activePayload[0]) {
+                      setSelectedDate(data.activePayload[0].payload.date);
+                    }
+                  }}
+                >
                   <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                   <XAxis
                     dataKey="date"
@@ -275,6 +302,7 @@ export default function StockChart({ data, companyInfo, onRefresh, loading, stat
                       fillOpacity={0.2}
                       fill="#22c55e"
                       name="High"
+                      dot={(props) => <CustomDot {...props} selectedDate={selectedDate} dataKey="High" />}
                     />
                   )}
                   {selectedSeries.Low && (
@@ -286,6 +314,7 @@ export default function StockChart({ data, companyInfo, onRefresh, loading, stat
                       fillOpacity={0.2}
                       fill="#ef4444"
                       name="Low"
+                      dot={(props) => <CustomDot {...props} selectedDate={selectedDate} dataKey="Low" />}
                     />
                   )}
                   {selectedSeries.Open && (
@@ -296,7 +325,7 @@ export default function StockChart({ data, companyInfo, onRefresh, loading, stat
                       stroke="#f59e42"
                       fill="#f59e42"
                       fillOpacity={0.2}
-                      dot={false}
+                      dot={(props) => <CustomDot {...props} selectedDate={selectedDate} dataKey="Open" />}
                       name="Open"
                     />
                   )}
@@ -308,7 +337,7 @@ export default function StockChart({ data, companyInfo, onRefresh, loading, stat
                       stroke="#6366f1"
                       fill="#6366f1"
                       fillOpacity={0.2}
-                      dot={false}
+                      dot={(props) => <CustomDot {...props} selectedDate={selectedDate} dataKey="Close" />}
                       name="Close"
                     />
                   )}

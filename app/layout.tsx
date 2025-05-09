@@ -32,7 +32,7 @@ export default function RootLayout({
           <main className="relative z-10">
             {children}
           </main>
-          <Toaster />
+          <Toaster richColors position="bottom-right" />
         </ThemeProvider>
       </body>
     </html>
