@@ -943,32 +943,11 @@ def run_pipeline(ticker, force_refresh=False):
     import json
 
     """Run complete analysis pipeline and print results at each step"""
-    pipeline_steps = []
-
     now_utc = datetime.now(timezone.utc)
 
     # Step 0: Check last run from `data` table
-    pipeline_steps.append({"step": "Checking cache", "status": "running"})
     with engine.connect() as conn:
-        # Check if pipeline_steps column exists and add it if it doesn't
-        try:
-            # Check if column exists
-            result = conn.execute(text("""
-                SELECT COUNT(*)
-                FROM information_schema.columns 
-                WHERE table_name = 'data' 
-                AND column_name = 'pipeline_steps'
-            """)).scalar()
-            
-            if result == 0:
-                # Column doesn't exist, add it
-                conn.execute(text("""
-                    ALTER TABLE data 
-                    ADD COLUMN pipeline_steps JSON
-                """))
-        except Exception as e:
-            print(f"Error managing pipeline_steps column: {e}")
-
+        print("Checking cache")
         result = conn.execute(
             text("SELECT last_run FROM data WHERE `company_info.ticker` = :ticker ORDER BY last_run DESC LIMIT 1"),
             {"ticker": ticker}
@@ -983,14 +962,13 @@ def run_pipeline(ticker, force_refresh=False):
             
             # Check if cache is still valid (less than 1 hour old)
             if now_utc - last_run_time < timedelta(hours=1):
+                print("Using cached data")
                 recent_data = conn.execute(
                     text("SELECT * FROM data WHERE `company_info.ticker` = :ticker ORDER BY last_run DESC LIMIT 1"),
                     {"ticker": ticker}
                 ).mappings().fetchone()
 
                 if recent_data:
-                    pipeline_steps[-1]["status"] = "completed"
-                    pipeline_steps[-1]["message"] = "Using cached data"
                     # Convert RowMapping to dict and parse the historical_data
                     recent_data_dict = dict(recent_data)
                     
@@ -1020,74 +998,59 @@ def run_pipeline(ticker, force_refresh=False):
                     reconstructed_data['last_run'] = last_run_time.isoformat()
                     return reconstructed_data
                 else:
-                    pipeline_steps[-1]["status"] = "completed"
-                    pipeline_steps[-1]["message"] = "No cached data found"
+                    print("No cached data found")
             else:
-                pipeline_steps[-1]["status"] = "completed"
-                pipeline_steps[-1]["message"] = "Cache expired, running pipeline"
+                print("Cache expired, running pipeline")
         else:
-            pipeline_steps[-1]["status"] = "completed"
-            pipeline_steps[-1]["message"] = "Force refresh requested, running pipeline"
+            print("Force refresh requested, running pipeline")
 
     # Step 1: Financial data
-    pipeline_steps.append({"step": "Fetching company info", "status": "running"})
+    print("Fetching company info")
     company_info = get_company_info(ticker)
     
     # Check for error in company info
     if "error" in company_info:
-        pipeline_steps[-1]["status"] = "error"
-        pipeline_steps[-1]["message"] = company_info["error"]
         return {
             "company_info": company_info,
-            "pipeline_steps": pipeline_steps,
             "error": company_info["error"]
         }
 
-    pipeline_steps[-1]["status"] = "completed"
-    pipeline_steps[-1]["message"] = f"Got data for {company_info['name']}"
+    print(f"Got data for {company_info['name']}")
 
     # Step 2: Get financial data
-    pipeline_steps.append({"step": "Fetching financial data", "status": "running"})
+    print("Fetching financial data")
     financial_data = get_financial_data(ticker, period="1mo")
     
     # Check for error in financial data
     if "error" in financial_data:
-        pipeline_steps[-1]["status"] = "error"
-        pipeline_steps[-1]["message"] = financial_data["error"]
         return {
             "company_info": company_info,
             "financial_data": financial_data,
-            "pipeline_steps": pipeline_steps,
             "error": financial_data["error"]
         }
         
-    pipeline_steps[-1]["status"] = "completed"
-    pipeline_steps[-1]["message"] = "Got financial data"
+    print("Got financial data")
 
     # Step 3: News data
-    pipeline_steps.append({"step": "Analyzing news", "status": "running"})
+    print("Analyzing news")
     news_data = get_news_and_extract_keywords(company_info['name'], days=2)
-    pipeline_steps[-1]["status"] = "completed"
-    pipeline_steps[-1]["message"] = f"Found {len(news_data['articles'])} articles"
+    print(f"Found {len(news_data['articles'])} articles")
 
     # Step 4: Expand keywords with AI
-    pipeline_steps.append({"step": "Expanding keywords", "status": "running"})
+    print("Expanding keywords")
     top_keywords = [k[0] for k in news_data['top_keywords'][:10]]
     expanded_data = expand_keywords_and_generate_queries(company_info['name'], top_keywords, company_info.get('industry', 'N/A'))
-    pipeline_steps[-1]["status"] = "completed"
-    pipeline_steps[-1]["message"] = "Generated search queries"
+    print("Generated search queries")
 
     # Step 5: Scraping social media
-    pipeline_steps.append({"step": "Analyzing social media", "status": "running"})
+    print("Analyzing social media")
     social_data = scrape_social_media(company_info['name'], expanded_data['search_queries'])
-    pipeline_steps[-1]["status"] = "completed"
-    pipeline_steps[-1]["message"] = f"Analyzed {social_data['total_posts']} posts"
+    print(f"Analyzed {social_data['total_posts']} posts")
 
     # Step 6: Calculate metrics
-    pipeline_steps.append({"step": "Calculating metrics", "status": "running"})
+    print("Calculating metrics")
     scores = calculate_metrics(financial_data, news_data, social_data)
-    pipeline_steps[-1]["status"] = "completed"
-    pipeline_steps[-1]["message"] = "Calculated all scores"
+    print("Calculated all scores")
 
     # Prepare the response structure
     res = {
@@ -1097,8 +1060,7 @@ def run_pipeline(ticker, force_refresh=False):
         "expanded_data": expanded_data,
         "social_data": social_data,
         "scores": scores,
-        "last_run": now_utc.isoformat(),
-        "pipeline_steps": pipeline_steps
+        "last_run": now_utc.isoformat()
     }
 
     try:
@@ -1110,43 +1072,8 @@ def run_pipeline(ticker, force_refresh=False):
             conn.execute(text("DELETE FROM data WHERE `company_info.ticker` = :ticker"), {"ticker": ticker})
             # Insert new data
             df_flat.to_sql("data", con=conn, if_exists="append", index=False)
-            # Fetch the newly inserted data
-            recent_data = conn.execute(
-                text("SELECT * FROM data WHERE `company_info.ticker` = :ticker ORDER BY last_run DESC LIMIT 1"),
-                {"ticker": ticker}
-            ).mappings().fetchone()
-
-            if recent_data:
-                # Convert RowMapping to dict and parse the historical_data
-                recent_data_dict = dict(recent_data)
-                
-                # Reconstruct nested structure
-                reconstructed_data = {}
-                for key, value in recent_data_dict.items():
-                    if '.' in key:
-                        parts = key.split('.')
-                        current = reconstructed_data
-                        for part in parts[:-1]:
-                            if part not in current:
-                                current[part] = {}
-                            current = current[part]
-                        current[parts[-1]] = value
-                    else:
-                        reconstructed_data[key] = value
-                
-                # Parse JSON strings back into objects
-                if 'financial_data' in reconstructed_data and 'historical_data' in reconstructed_data['financial_data']:
-                    try:
-                        historical_data = json.loads(reconstructed_data['financial_data']['historical_data'])
-                        reconstructed_data['financial_data']['historical_data'] = historical_data
-                    except json.JSONDecodeError as e:
-                        print(f"DEBUG: Error parsing historical_data: {e}")
-                
-                # Ensure last_run is set
-                reconstructed_data['last_run'] = now_utc.isoformat()
-                return reconstructed_data
-            else:
-                raise ValueError(f"No recent data found in DB for {ticker}")
+            # Return the original res object instead of querying the database again
+            return res
     except Exception as e:
         print(f"DEBUG: Error in data processing: {e}")
         print(f"DEBUG: Error type: {type(e)}")
@@ -1253,42 +1180,34 @@ def analyze():
         if not data:
             return jsonify({"error": "No data provided"}), 400
             
-        symbols_string = data.get('symbols')
+        symbol = data.get('symbol')
         force_refresh = data.get('force_refresh', False)
 
-        if not symbols_string:
-            return jsonify({"error": "No symbols provided"}), 400
+        if not symbol:
+            return jsonify({"error": "No symbol provided"}), 400
 
-        symbols = [s.strip().upper() for s in symbols_string.split(',')]
-        output_results = {}
+        symbol = symbol.strip().upper()
+        
+        try:
+            # Run pipeline
+            raw_result = run_pipeline(symbol, force_refresh=force_refresh)
+            
+            # Check if there's an error in the result
+            has_error = "error" in raw_result
+            
+            return jsonify({
+                "message": "Pipeline completed.",
+                "result": raw_result,
+                "status": "error" if has_error else "completed"
+            })
+            
+        except Exception as e:
+            print(f"Error processing symbol {symbol}: {str(e)}")
+            return jsonify({
+                "error": str(e),
+                "status": "error"
+            }), 500
 
-        for symbol in symbols:
-            try:
-                # Run pipeline and update steps
-                raw_result = run_pipeline(symbol, force_refresh=force_refresh)
-                
-                # Check if there's an error in the result
-                has_error = "error" in raw_result
-                
-                # Update the response with the final result
-                output_results[symbol] = {
-                    "result": raw_result,
-                    "status": "error" if has_error else "completed",
-                    "pipeline_steps": raw_result.get("pipeline_steps", [])
-                }
-                
-            except Exception as e:
-                print(f"Error processing symbol {symbol}: {str(e)}")
-                output_results[symbol] = {
-                    "error": str(e),
-                    "status": "error",
-                    "pipeline_steps": []
-                }
-
-        return jsonify({
-            "message": "Pipeline completed.",
-            "results": output_results
-        })
     except Exception as e:
         print(f"Error in analyze endpoint: {str(e)}")
         return jsonify({

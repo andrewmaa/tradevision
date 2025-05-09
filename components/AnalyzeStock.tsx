@@ -9,12 +9,6 @@ interface AnalyzeStockProps {
   searchValue: string;
 }
 
-interface PipelineStep {
-  step: string;
-  status: "running" | "completed" | "error";
-  message?: string;
-}
-
 interface StockData {
   financial_data: {
     historical_data: {
@@ -43,14 +37,12 @@ interface StockData {
     website?: string;
   };
   last_run?: string;
-  pipeline_steps?: PipelineStep[];
 }
 
 interface StockResult {
   result: StockData;
   status: string;
   error?: string;
-  pipeline_steps?: PipelineStep[];
 }
 
 interface ApiResponse {
@@ -60,32 +52,17 @@ interface ApiResponse {
   };
 }
 
-function PipelineSteps({ steps }: { steps: PipelineStep[] }) {
-  return (
-    <div className="space-y-2 mt-4">
-      {steps.map((step, index) => (
-        <div key={index} className="flex items-center space-x-3">
-          <div className={`w-2 h-2 rounded-full ${
-            step.status === "completed" ? "bg-green-500" :
-            step.status === "running" ? "bg-blue-500 animate-pulse" :
-            "bg-red-500"
-          }`} />
-          <div className="flex-1">
-            <div className="text-sm font-medium">{step.step}</div>
-            {step.message && (
-              <div className="text-xs text-gray-500">{step.message}</div>
-            )}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 export default function AnalyzeStock({ searchValue }: AnalyzeStockProps) {
   const [result, setResult] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  // Add initial data fetch when component mounts or searchValue changes
+  React.useEffect(() => {
+    if (searchValue.trim()) {
+      handleAnalyze(false);
+    }
+  }, [searchValue]);
 
   const handleAnalyze = async (forceRefresh = false) => {
     if (!searchValue.trim()) return;
@@ -105,7 +82,7 @@ export default function AnalyzeStock({ searchValue }: AnalyzeStockProps) {
         mode: 'cors',  // Explicitly set CORS mode
         credentials: 'omit',  // Don't send credentials
         body: JSON.stringify({ 
-          symbols: searchValue,
+          symbol: searchValue,
           force_refresh: forceRefresh 
         }),
       });
@@ -118,20 +95,23 @@ export default function AnalyzeStock({ searchValue }: AnalyzeStockProps) {
       const data = await response.json();
       console.log("DEBUG: Received data from API:", data);
       
-      // Ensure the result is properly structured
-      const stockResult = data.results[searchValue.toUpperCase()];
-      if (stockResult?.result) {
+      // Update to handle new response format
+      if (data.result) {
         // Ensure last_run is set
-        if (!stockResult.result.last_run) {
-          stockResult.result.last_run = new Date().toISOString();
-        }
-        // Ensure pipeline_steps is set
-        if (!stockResult.result.pipeline_steps) {
-          stockResult.result.pipeline_steps = [];
+        if (!data.result.last_run) {
+          data.result.last_run = new Date().toISOString();
         }
       }
       
-      setResult(data);
+      setResult({
+        message: data.message,
+        results: {
+          [searchValue.toUpperCase()]: {
+            result: data.result,
+            status: data.status
+          }
+        }
+      });
     } catch (err) {
       console.error("DEBUG: Error in handleAnalyze:", err);
       setError(err instanceof Error ? err.message : "Unknown error");
@@ -140,70 +120,24 @@ export default function AnalyzeStock({ searchValue }: AnalyzeStockProps) {
     }
   };
 
-  // Check if data needs to be refreshed based on last_run timestamp
-  const checkAndRefreshData = async () => {
-    if (!searchValue.trim()) return;
-
-    try {
-      const response = await fetch(`${API_BASE_URL}/analyze`, {
-        method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          "Accept": "application/json"
-        },
-        mode: 'cors',
-        credentials: 'omit',
-        body: JSON.stringify({ 
-          symbols: searchValue,
-          force_refresh: false 
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`API error: ${response.status}`);
-      }
-
-      const data = await response.json();
-      const stockData = data.results[searchValue.toUpperCase()]?.result;
-      
+  // Call checkAndRefreshData on mount and when searchValue changes
+  React.useEffect(() => {
+    // Remove automatic data check on mount
+    // Only check if we have a result and need to refresh
+    if (result && searchValue.trim()) {
+      const stockData = result.results[searchValue.toUpperCase()]?.result;
       if (stockData?.last_run) {
         const lastRun = new Date(stockData.last_run);
         const now = new Date();
         const hoursSinceLastRun = (now.getTime() - lastRun.getTime()) / (1000 * 60 * 60);
         
-        // If data is older than 1 hour, refresh it
         if (hoursSinceLastRun >= 1) {
           console.log("Data is older than 1 hour, refreshing...");
           handleAnalyze(true);
-        } else {
-          console.log("Using cached data, last updated:", lastRun);
-          // Ensure the result is properly structured
-          if (stockData) {
-            stockData.last_run = lastRun.toISOString();
-            if (!stockData.pipeline_steps) {
-              stockData.pipeline_steps = [];
-            }
-          }
-          setResult(data);
         }
-      } else {
-        // If no last_run timestamp, treat as new data
-        console.log("No last_run timestamp, treating as new data");
-        handleAnalyze(true);
       }
-    } catch (err) {
-      console.error("Error checking data freshness:", err);
-      // If there's an error checking, just try to get fresh data
-      handleAnalyze(true);
     }
-  };
-
-  // Call checkAndRefreshData on mount and when searchValue changes
-  React.useEffect(() => {
-    if (searchValue.trim()) {
-      checkAndRefreshData();
-    }
-  }, [searchValue]); // Add searchValue as a dependency
+  }, [result, searchValue]); // Add result as a dependency
 
   // Debug log before rendering
   if (result) {
@@ -222,11 +156,9 @@ export default function AnalyzeStock({ searchValue }: AnalyzeStockProps) {
     <div className="w-full max-w-4xl mx-auto p-4">
       <div className="min-h-[400px]">
         {loading && (
-          <div className="h-full flex flex-col items-center justify-center">
+          <div className="flex items-center justify-center h-[400px]">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
-            {result?.results[searchValue.toUpperCase()]?.result?.pipeline_steps && (
-              <PipelineSteps steps={result.results[searchValue.toUpperCase()].result.pipeline_steps || []} />
-            )}
+            <p className="ml-3 text-gray-500">Analyzing {searchValue}...</p>
           </div>
         )}
         
@@ -274,7 +206,6 @@ export default function AnalyzeStock({ searchValue }: AnalyzeStockProps) {
                 onRefresh={handleRefresh}
                 loading={loading}
                 status={result.results[searchValue.toUpperCase()]?.status}
-                pipelineSteps={result.results[searchValue.toUpperCase()]?.result?.pipeline_steps}
               />
               
               <Accordion type="single" collapsible className="bg-white rounded-lg shadow">
