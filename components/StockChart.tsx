@@ -201,15 +201,15 @@ export default function StockChart({ data, companyInfo, onRefresh, loading, stat
 
       {/* Price Range & Volume with Current Day Data */}
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>Price Range & Volume</CardTitle>
+        <CardHeader className="flex flex-row items-center justify-between p-4 sm:p-6">
+          <CardTitle className="text-lg sm:text-xl">Price Range & Volume</CardTitle>
           <HoverCard openDelay={0} closeDelay={0}>
             <HoverCardTrigger asChild>
               <button className="p-2 hover:bg-muted rounded-full transition-colors">
-                <HelpCircle className="h-5 w-5 text-muted-foreground" />
+                <HelpCircle className="h-4 w-4 sm:h-5 sm:w-5 text-muted-foreground" />
               </button>
             </HoverCardTrigger>
-            <HoverCardContent className="w-80">
+            <HoverCardContent className="w-[280px] sm:w-80">
               <div className="space-y-4">
                 <h4 className="text-sm font-semibold">Understanding OHLC & Volume</h4>
                 <div className="space-y-2">
@@ -233,124 +233,139 @@ export default function StockChart({ data, companyInfo, onRefresh, loading, stat
             </HoverCardContent>
           </HoverCard>
         </CardHeader>
-        <CardContent>
-          <div className="space-y-6">
+        <CardContent className="p-4 sm:p-6">
+          <div className="space-y-4 sm:space-y-6">
             {/* Graph */}
-            <div className="h-[400px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart 
-                  data={chartData}
-                  onClick={(data) => {
-                    if (data && data.activePayload && data.activePayload[0]) {
-                      setSelectedDate(data.activePayload[0].payload.date);
-                    }
-                  }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                  <XAxis
-                    dataKey="date"
-                    className="text-xs text-muted-foreground"
-                    tickFormatter={(value) => {
-                      const date = new Date(value);
-                      return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-                    }}
-                  />
-                  <YAxis
-                    yAxisId="left"
-                    className="text-xs text-muted-foreground"
-                    tickFormatter={(value) => `$${value.toFixed(2)}`}
-                    domain={['auto', 'auto']}
-                  />
-                  <YAxis
-                    yAxisId="right"
-                    orientation="right"
-                    className="text-xs text-muted-foreground"
-                    tickFormatter={(value) => value.toLocaleString()}
-                    domain={['auto', 'auto']}
-                  />
-                  <Tooltip
-                    formatter={(value: number, name: string) => {
-                      const formattedValue = name === 'Volume' 
-                        ? value.toLocaleString()
-                        : `$${value.toFixed(2)}`;
-                      return [formattedValue, name.replace(/\s+/g, '')];
-                    }}
-                    labelFormatter={(label) => {
-                      const date = new Date(label);
-                      return date.toLocaleDateString(undefined, { 
-                        year: 'numeric',
-                        month: 'short',
-                        day: 'numeric'
-                      });
-                    }}
-                  />
-                  {selectedSeries.Volume && (
-                    <Bar
-                      yAxisId="right"
-                      dataKey="Volume"
-                      fill="#c4c4c4"
-                      barSize={10}
-                      name="Volume"
-                    />
-                  )}
-                  {selectedSeries.High && (
-                    <Area
-                      yAxisId="left"
-                      type="monotone"
-                      dataKey="High"
-                      stroke="#22c55e"
-                      fillOpacity={0.2}
-                      fill="#22c55e"
-                      name="High"
-                      dot={(props) => <CustomDot {...props} selectedDate={selectedDate} dataKey="High" />}
-                    />
-                  )}
-                  {selectedSeries.Low && (
-                    <Area
-                      yAxisId="left"
-                      type="monotone"
-                      dataKey="Low"
-                      stroke="#ef4444"
-                      fillOpacity={0.2}
-                      fill="#ef4444"
-                      name="Low"
-                      dot={(props) => <CustomDot {...props} selectedDate={selectedDate} dataKey="Low" />}
-                    />
-                  )}
-                  {selectedSeries.Open && (
-                    <Area
-                      yAxisId="left"
-                      type="monotone"
-                      dataKey="Open"
-                      stroke="#f59e42"
-                      fill="#f59e42"
-                      fillOpacity={0.2}
-                      dot={(props) => <CustomDot {...props} selectedDate={selectedDate} dataKey="Open" />}
-                      name="Open"
-                    />
-                  )}
-                  {selectedSeries.Close && (
-                    <Area
-                      yAxisId="left"
-                      type="monotone"
-                      dataKey="Close"
-                      stroke="#6366f1"
-                      fill="#6366f1"
-                      fillOpacity={0.2}
-                      dot={(props) => <CustomDot {...props} selectedDate={selectedDate} dataKey="Close" />}
-                      name="Close"
-                    />
-                  )}
-                </ComposedChart>
-              </ResponsiveContainer>
+            <div className="h-[300px] sm:h-[400px] relative">
+              <div className="absolute inset-0 overflow-x-auto overflow-y-hidden">
+                <div className="min-w-[600px] h-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ComposedChart 
+                      data={chartData}
+                      onClick={(data) => {
+                        if (data && data.activePayload && data.activePayload[0]) {
+                          setSelectedDate(data.activePayload[0].payload.date);
+                        }
+                      }}
+                      margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                      <XAxis
+                        dataKey="date"
+                        className="text-xs sm:text-sm text-muted-foreground"
+                        tickFormatter={(value) => {
+                          const date = new Date(value);
+                          return date.toLocaleDateString(undefined, { 
+                            month: 'short', 
+                            day: 'numeric',
+                            ...(window.innerWidth >= 640 ? { year: '2-digit' } : {})
+                          });
+                        }}
+                        tick={{ fontSize: window.innerWidth < 640 ? 10 : 12 }}
+                        interval="preserveStartEnd"
+                        minTickGap={window.innerWidth < 640 ? 30 : 50}
+                      />
+                      <YAxis
+                        yAxisId="left"
+                        className="text-xs sm:text-sm text-muted-foreground"
+                        tickFormatter={(value) => `$${value.toFixed(2)}`}
+                        domain={['auto', 'auto']}
+                        tick={{ fontSize: window.innerWidth < 640 ? 10 : 12 }}
+                        width={window.innerWidth < 640 ? 40 : 60}
+                      />
+                      <YAxis
+                        yAxisId="right"
+                        orientation="right"
+                        className="text-xs sm:text-sm text-muted-foreground"
+                        tickFormatter={(value) => value.toLocaleString()}
+                        domain={['auto', 'auto']}
+                        tick={{ fontSize: window.innerWidth < 640 ? 10 : 12 }}
+                        width={window.innerWidth < 640 ? 40 : 60}
+                      />
+                      <Tooltip
+                        content={({ active, payload, label }) => {
+                          if (active && payload && payload.length) {
+                            return (
+                              <div className="bg-white/90 backdrop-blur-sm p-2 rounded-lg shadow-lg border text-xs sm:text-sm">
+                                <p className="font-semibold">{new Date(label).toLocaleDateString()}</p>
+                                {payload.map((entry: any, index: number) => (
+                                  <p key={index} style={{ color: entry.color }}>
+                                    {entry.name}: {entry.name === 'Volume' 
+                                      ? entry.value.toLocaleString() 
+                                      : `$${entry.value.toFixed(2)}`}
+                                  </p>
+                                ))}
+                              </div>
+                            );
+                          }
+                          return null;
+                        }}
+                      />
+                      {selectedSeries.Open && (
+                        <Line
+                          yAxisId="left"
+                          type="monotone"
+                          dataKey="Open"
+                          stroke="#f59e42"
+                          strokeWidth={2}
+                          dot={<CustomDot selectedDate={selectedDate} />}
+                        />
+                      )}
+                      {selectedSeries.High && (
+                        <Line
+                          yAxisId="left"
+                          type="monotone"
+                          dataKey="High"
+                          stroke="#22c55e"
+                          strokeWidth={2}
+                          dot={<CustomDot selectedDate={selectedDate} />}
+                        />
+                      )}
+                      {selectedSeries.Low && (
+                        <Line
+                          yAxisId="left"
+                          type="monotone"
+                          dataKey="Low"
+                          stroke="#ef4444"
+                          strokeWidth={2}
+                          dot={<CustomDot selectedDate={selectedDate} />}
+                        />
+                      )}
+                      {selectedSeries.Close && (
+                        <Line
+                          yAxisId="left"
+                          type="monotone"
+                          dataKey="Close"
+                          stroke="#6366f1"
+                          strokeWidth={2}
+                          dot={<CustomDot selectedDate={selectedDate} />}
+                        />
+                      )}
+                      {selectedSeries.Volume && (
+                        <Bar
+                          yAxisId="right"
+                          dataKey="Volume"
+                          fill="#94a3b8"
+                          opacity={0.3}
+                        />
+                      )}
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+              {/* Scroll indicator for mobile */}
+              <div className="absolute bottom-2 left-1/2 transform -translate-x-1/2 sm:hidden">
+                <div className="bg-black/10 backdrop-blur-sm px-3 py-1 rounded-full text-xs text-muted-foreground">
+                  ← Scroll to see more →
+                </div>
+              </div>
             </div>
 
-            {/* Current Day Data */}
-            <div className="border-t pt-6">
-              <div className="grid grid-cols-5 gap-4">
+            <div className="border-t pt-4 sm:pt-6">
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 sm:gap-4">
                 <div className="space-y-1">
-                  <p className="text-sm text-muted-foreground">Date</p>
-                  <p className="text-lg font-medium">
+                  <p className="text-xs sm:text-sm text-muted-foreground">Date</p>
+                  <p className="text-sm sm:text-lg font-medium">
                     {new Date(currentDayData.date).toLocaleDateString(undefined, {
                       year: 'numeric',
                       month: 'short',
@@ -363,42 +378,32 @@ export default function StockChart({ data, companyInfo, onRefresh, loading, stat
                   onClick={() => toggleSeries('Open')}
                   style={getSeriesStyle('Open')}
                 >
-                  <p className="text-sm text-muted-foreground">Open</p>
-                  <p className="text-lg font-medium">${currentDayData.Open.toFixed(2)}</p>
+                  <p className="text-xs sm:text-sm text-muted-foreground">Open</p>
+                  <p className="text-sm sm:text-lg font-medium">${currentDayData.Open.toFixed(2)}</p>
                 </div>
                 <div 
                   className="space-y-1 cursor-pointer"
                   onClick={() => toggleSeries('High')}
                   style={getSeriesStyle('High')}
                 >
-                  <p className="text-sm text-muted-foreground">High</p>
-                  <p className="text-lg font-medium">${currentDayData.High.toFixed(2)}</p>
+                  <p className="text-xs sm:text-sm text-muted-foreground">High</p>
+                  <p className="text-sm sm:text-lg font-medium">${currentDayData.High.toFixed(2)}</p>
                 </div>
                 <div 
                   className="space-y-1 cursor-pointer"
                   onClick={() => toggleSeries('Low')}
                   style={getSeriesStyle('Low')}
                 >
-                  <p className="text-sm text-muted-foreground">Low</p>
-                  <p className="text-lg font-medium">${currentDayData.Low.toFixed(2)}</p>
+                  <p className="text-xs sm:text-sm text-muted-foreground">Low</p>
+                  <p className="text-sm sm:text-lg font-medium">${currentDayData.Low.toFixed(2)}</p>
                 </div>
                 <div 
                   className="space-y-1 cursor-pointer"
                   onClick={() => toggleSeries('Close')}
                   style={getSeriesStyle('Close')}
                 >
-                  <p className="text-sm text-muted-foreground">Close</p>
-                  <p className="text-lg font-medium">${currentDayData.Close.toFixed(2)}</p>
-                </div>
-              </div>
-              <div className="mt-4">
-                <div 
-                  className="space-y-1 cursor-pointer"
-                  onClick={() => toggleSeries('Volume')}
-                  style={getSeriesStyle('Volume')}
-                >
-                  <p className="text-sm text-muted-foreground">Volume</p>
-                  <p className="text-lg font-medium">{currentDayData.Volume.toLocaleString()}</p>
+                  <p className="text-xs sm:text-sm text-muted-foreground">Close</p>
+                  <p className="text-sm sm:text-lg font-medium">${currentDayData.Close.toFixed(2)}</p>
                 </div>
               </div>
             </div>

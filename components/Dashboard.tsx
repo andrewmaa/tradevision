@@ -160,8 +160,11 @@ export default function Dashboard() {
   if (!isInitialized || isLoading) {
     return (
       <div className="h-full flex flex-col items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
-        <p className="mt-4 text-gray-500">Updating stock data...</p>
+        <div className="p-4 bg-white/40 rounded-lg flex flex-col items-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+          <p className="mt-4 text-gray-500">Updating stock data...</p>
+          <p className="mt-2 text-gray-700">Please wait while we fetch the latest stock information.</p>
+        </div>
       </div>
     );
   }

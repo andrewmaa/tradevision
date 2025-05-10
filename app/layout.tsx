@@ -6,6 +6,7 @@ import type React from "react"
 import { ThemeProvider } from "@/components/theme-provider"
 import BackgroundPaths from "@/components/background-paths"
 import { Toaster } from "@/components/ui/sonner"
+import { usePathname } from "next/navigation"
 
 const inter = Inter({ subsets: ["latin"] })
 
@@ -14,6 +15,9 @@ export default function RootLayout({
 }: {
   children: React.ReactNode
 }) {
+  const pathname = usePathname()
+  const showBackground = pathname !== '/'
+
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
@@ -22,17 +26,19 @@ export default function RootLayout({
       <body className={`${inter.className} min-h-screen relative`}>
         <ThemeProvider
           attribute="class"
-          defaultTheme="light"
-          enableSystem={false}
-          forcedTheme="light"
+          defaultTheme="system"
+          enableSystem={true}
+          disableTransitionOnChange
         >
-          <div className="fixed inset-0 z-0">
-            <BackgroundPaths />
-          </div>
+          {showBackground && (
+            <div className="fixed inset-0 z-0">
+              <BackgroundPaths />
+            </div>
+          )}
           <main className="relative z-10">
             {children}
           </main>
-          <Toaster richColors position="bottom-right" />
+          <Toaster />
         </ThemeProvider>
       </body>
     </html>

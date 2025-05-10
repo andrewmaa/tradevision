@@ -9,16 +9,18 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen text-black">
-      <div className="lg:grid lg:grid-cols-[280px_1fr] min-h-screen">
+      <div className="flex min-h-screen overflow-hidden">
         <Sidebar />
-        <main className="p-6 lg:p-8 flex flex-col relative">
-          <div className="flex flex-col items-center justify-center gap-6 mb-8 relative z-10">
-            <h1 className="text-3xl font-bold" style = {{fontSize: "40px"}}>Dashboard</h1>
-          </div>
-          <div className="flex-1 relative z-10">
-            <Dashboard />
-          </div>
-        </main>
+        <div className="flex-1 flex justify-center">
+          <main className="w-full max-w-[1200px] p-6 lg:p-8 flex flex-col">
+            <div className="flex flex-col items-center justify-center gap-6 mb-8">
+              <h1 className="text-3xl font-bold" style = {{fontSize: "40px"}}>Dashboard</h1>
+            </div>
+            <div className="flex-1">
+              <Dashboard />
+            </div>
+          </main>
+        </div>
       </div>
     </div>
   )

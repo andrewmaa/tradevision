@@ -75,7 +75,7 @@ openai_api_key = os.environ.get("OPENAI_API_KEY")
 reddit_client_id = os.environ.get("REDDIT_CLIENT_ID")
 reddit_client_secret = os.environ.get("REDDIT_CLIENT_SECRET")
 reddit_user_agent = os.environ.get("REDDIT_USER_AGENT")
-alpha_vantage_api_key = "LBYM2R0I3R8S52UA"
+alpha_vantage_api_key = os.environ.get("ALPHA_VANTAGE_API_KEY")
 
 try:
     # Use pymysql explicitly in the connection string
@@ -719,6 +719,7 @@ def scrape_social_media(company_name, search_queries, max_results=100):
 
     # Function to filter and score posts using VADER (no API costs)
     def filter_and_score_post(post):
+        # Calculate sentiment on the combined text
         sentiment = analyzer.polarity_scores(post["text"])
         post["sentiment_score"] = sentiment["compound"]
         post["sentiment_category"] = "positive" if sentiment["compound"] > 0.05 else "negative" if sentiment["compound"] < -0.05 else "neutral"
@@ -773,8 +774,10 @@ def scrape_social_media(company_name, search_queries, max_results=100):
 
                     post = {
                         "platform": "Reddit",
+                        "title": submission.title,
+                        "description": submission.selftext if submission.selftext else "",
                         "text": submission.title + " " + (submission.selftext if submission.selftext else ""),
-                        "created_at": pd.to_datetime(submission.created_utc, unit='s'),
+                        "created_at": pd.to_datetime(submission.created_utc, unit='s').isoformat(),
                         "username": submission.author.name if submission.author and hasattr(submission.author, 'name') else "[deleted]",
                         "likes": submission.score,
                         "comments": submission.num_comments,
@@ -806,8 +809,10 @@ def scrape_social_media(company_name, search_queries, max_results=100):
 
                             post = {
                                 "platform": "Reddit",
+                                "title": submission.title,
+                                "description": submission.selftext if submission.selftext else "",
                                 "text": submission.title + " " + (submission.selftext if submission.selftext else ""),
-                                "created_at": pd.to_datetime(submission.created_utc, unit='s'),
+                                "created_at": pd.to_datetime(submission.created_utc, unit='s').isoformat(),
                                 "username": submission.author.name if submission.author and hasattr(submission.author, 'name') else "[deleted]",
                                 "likes": submission.score,
                                 "comments": submission.num_comments,
@@ -879,14 +884,14 @@ def scrape_social_media(company_name, search_queries, max_results=100):
         }
     else:
         return {
-            "posts": all_posts,
-            "top_posts": sorted(all_posts, key=lambda x: x.get('engagement', 0), reverse=True)[:10],
-            "total_posts": len(all_posts),
-            "avg_sentiment": sum(post["sentiment_score"] for post in all_posts) / len(all_posts),
+            "posts": [],
+            "top_posts": [],
+            "total_posts": 0,
+            "avg_sentiment": 0,
             "sentiment_distribution": {
-                "positive": len([p for p in all_posts if p["sentiment_score"] > 0.05]) / len(all_posts),
-                "neutral": len([p for p in all_posts if -0.05 <= p["sentiment_score"] <= 0.05]) / len(all_posts),
-                "negative": len([p for p in all_posts if p["sentiment_score"] < -0.05]) / len(all_posts),
+                "positive": 0,
+                "neutral": 0,
+                "negative": 0
             }
         }
 
@@ -896,10 +901,10 @@ def scrape_social_media(company_name, search_queries, max_results=100):
 
 import requests
 
-API_KEY = "LBYM2R0I3R8S52UA"
+
 
 def get_alpha_vantage_trending():
-    url = f"https://www.alphavantage.co/query?function=TOP_GAINERS_LOSERS&apikey={API_KEY}"
+    url = f"https://www.alphavantage.co/query?function=TOP_GAINERS_LOSERS&apikey={alpha_vantage_api_key}"
 
     try:
         response = requests.get(url, timeout=10)
@@ -910,6 +915,7 @@ def get_alpha_vantage_trending():
             f"{stock['ticker']} ({stock['price']})"
             for stock in data.get('top_gainers', [])
         ]
+        print(trending[0:10])
         return trending[:10]
 
     except Exception as e:
@@ -1000,19 +1006,26 @@ def run_pipeline(ticker, force_refresh=False):
                 last_run_time = last_run_time.replace(tzinfo=timezone.utc)
             
             # Check if cache is still valid (less than 1 hour old)
-            if now_utc - last_run_time < timedelta(hours=1):
-                print("Using cached data")
-                recent_data = conn.execute(
-                    text("SELECT * FROM data WHERE `company_info.ticker` = :ticker ORDER BY last_run DESC LIMIT 1"),
-                    {"ticker": ticker}
-                ).mappings().fetchone()
+            cache_age = now_utc - last_run_time
+            cache_age_hours = cache_age.total_seconds() / 3600
+            logger.info(f"Cache age: {cache_age_hours:.2f} hours")
+            
+            if cache_age < timedelta(hours=1):
+                logger.info(f"Using cached data (age: {cache_age_hours:.2f} hours)")
+                yield send_sse_message({"step": "cache", "status": "success", "message": f"Using cached data (age: {cache_age_hours:.2f} hours)"})
+                
+                # Debug: Print the data query
+                data_query = text("SELECT * FROM data WHERE `company_info.ticker` = :ticker ORDER BY last_run DESC LIMIT 1")
+                logger.info(f"Executing data fetch query for ticker: {ticker}")
+                
+                recent_data = conn.execute(data_query, {"ticker": ticker}).mappings().fetchone()
+                logger.info(f"Found cached data: {bool(recent_data)}")
 
                 if recent_data:
-                    # Convert RowMapping to dict and parse the historical_data
                     recent_data_dict = dict(recent_data)
-                    
-                    # Reconstruct nested structure
+                    logger.info("Reconstructing data structure")
                     reconstructed_data = {}
+                    
                     for key, value in recent_data_dict.items():
                         if '.' in key:
                             parts = key.split('.')
@@ -1025,22 +1038,37 @@ def run_pipeline(ticker, force_refresh=False):
                         else:
                             reconstructed_data[key] = value
                     
-                    # Parse JSON strings back into objects
                     if 'financial_data' in reconstructed_data:
                         if 'historical_data' in reconstructed_data['financial_data']:
                             try:
                                 historical_data = json.loads(reconstructed_data['financial_data']['historical_data'])
                                 reconstructed_data['financial_data']['historical_data'] = historical_data
+                                logger.info("Successfully parsed historical_data")
                             except json.JSONDecodeError as e:
-                                print(f"DEBUG: Error parsing historical_data: {e}")
+                                logger.error(f"Error parsing historical_data: {e}")
                     
-                    # Ensure last_run is set
+                    # Parse news_data.articles if it exists
+                    if 'news_data' in reconstructed_data:
+                        try:
+                            if isinstance(reconstructed_data['news_data'], str):
+                                news_data = json.loads(reconstructed_data['news_data'])
+                                reconstructed_data['news_data'] = news_data
+                                logger.info("Successfully parsed news_data from string")
+                            else:
+                                logger.info("news_data is already a dictionary, no parsing needed")
+                        except json.JSONDecodeError as e:
+                            logger.error(f"Error parsing news_data: {e}")
+                    
                     reconstructed_data['last_run'] = last_run_time.isoformat()
-                    return reconstructed_data
+                    logger.info("Successfully reconstructed cached data")
+                    yield send_sse_message({"step": "complete", "status": "success", "data": reconstructed_data})
+                    return
                 else:
-                    print("No cached data found")
+                    logger.info("No cached data found in database")
+                    yield send_sse_message({"step": "cache", "status": "error", "message": "No cached data found"})
             else:
-                print("Cache expired, running pipeline")
+                logger.info(f"Cache expired (age: {cache_age_hours:.2f} hours), running pipeline")
+                yield send_sse_message({"step": "cache", "status": "info", "message": f"Cache expired (age: {cache_age_hours:.2f} hours), running pipeline"})
         else:
             print("Force refresh requested, running pipeline")
 
@@ -1075,6 +1103,7 @@ def run_pipeline(ticker, force_refresh=False):
     print("Analyzing news")
     news_data = get_news_and_extract_keywords(company_info['name'], days=2)
     print(f"Found {len(news_data['articles'])} articles")
+    print(f"DEBUG: News data structure: {json.dumps(news_data, indent=2, default=json_serial)}")
 
     # Step 4: Expand keywords with AI
     print("Expanding keywords")
@@ -1155,7 +1184,7 @@ app = Flask(__name__)
 # Configure CORS
 CORS(app, 
      resources={r"/*": {
-         "origins": ["https://tradevision-kappa.vercel.app", "http://localhost:3000"],
+         "origins": ["https://tradevision-kappa.vercel.app", "http://localhost:3000", "https://tradevision-production.up.railway.app"],
          "methods": ["GET", "POST", "OPTIONS"],
          "allow_headers": ["Content-Type", "Authorization", "Accept"],
          "supports_credentials": True,
@@ -1173,7 +1202,10 @@ def after_request(response):
     response.headers.add('Access-Control-Allow-Credentials', 'true')
     response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization,Accept')
     response.headers.add('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
-    response.headers.add('Access-Control-Allow-Origin', 'http://localhost:3000')
+    # Update to allow both localhost and Railway
+    origin = request.headers.get('Origin')
+    if origin in ["https://tradevision-kappa.vercel.app", "http://localhost:3000", "https://tradevision-production.up.railway.app"]:
+        response.headers.add('Access-Control-Allow-Origin', origin)
     return response
 
 @app.route('/health', methods=['GET'])
@@ -1255,33 +1287,54 @@ def analyze():
             try:
                 # Check cache first
                 now_utc = datetime.now(timezone.utc)
+                logger.info(f"Current UTC time: {now_utc.isoformat()}")
+                
                 with engine.connect() as conn:
-                    last_run = conn.execute(
-                        text("SELECT last_run FROM data WHERE `company_info.ticker` = :ticker ORDER BY last_run DESC LIMIT 1"),
-                        {"ticker": ticker}
-                    ).scalar()
+                    # Debug: Print the SQL query
+                    query = text("SELECT last_run FROM data WHERE `company_info.ticker` = :ticker ORDER BY last_run DESC LIMIT 1")
+                    logger.info(f"Executing cache check query for ticker: {ticker}")
+                    
+                    result = conn.execute(query, {"ticker": ticker}).fetchone()
+                    logger.info(f"Cache check result: {result}")
 
-                    if last_run and not force_refresh:
-                        last_run_time = parse_timestamp(last_run)
+                    # If force refresh is requested, skip cache check and run pipeline
+                    if force_refresh:
+                        logger.info("Force refresh requested, running pipeline")
+                        yield send_sse_message({"step": "cache", "status": "info", "message": "Force refresh requested, running pipeline"})
+                    elif result and result[0]:
+                        logger.info(f"Found cache entry with last_run: {result[0]}")
+                        last_run_time = parse_timestamp(result[0])
+                        
                         if last_run_time is None:
-                            logger.error(f"Invalid timestamp format in database: {last_run}")
+                            logger.error(f"Invalid timestamp format in database: {result[0]}")
                             yield send_sse_message({"step": "cache", "status": "error", "message": "Invalid timestamp format in database"})
                             return
                             
                         if last_run_time.tzinfo is None:
+                            logger.info("Adding UTC timezone to last_run_time")
                             last_run_time = last_run_time.replace(tzinfo=timezone.utc)
                         
-                        if now_utc - last_run_time < timedelta(hours=1):
-                            logger.info("Using cached data")
-                            yield send_sse_message({"step": "cache", "status": "success", "message": "Using cached data"})
-                            recent_data = conn.execute(
-                                text("SELECT * FROM data WHERE `company_info.ticker` = :ticker ORDER BY last_run DESC LIMIT 1"),
-                                {"ticker": ticker}
-                            ).mappings().fetchone()
+                        # Check if cache is still valid (less than 1 hour old)
+                        cache_age = now_utc - last_run_time
+                        cache_age_hours = cache_age.total_seconds() / 3600
+                        logger.info(f"Cache age: {cache_age_hours:.2f} hours")
+                        
+                        if cache_age < timedelta(hours=1):
+                            logger.info(f"Using cached data (age: {cache_age_hours:.2f} hours)")
+                            yield send_sse_message({"step": "cache", "status": "success", "message": f"Using cached data (age: {cache_age_hours:.2f} hours)"})
+                            
+                            # Debug: Print the data query
+                            data_query = text("SELECT * FROM data WHERE `company_info.ticker` = :ticker ORDER BY last_run DESC LIMIT 1")
+                            logger.info(f"Executing data fetch query for ticker: {ticker}")
+                            
+                            recent_data = conn.execute(data_query, {"ticker": ticker}).mappings().fetchone()
+                            logger.info(f"Found cached data: {bool(recent_data)}")
 
                             if recent_data:
                                 recent_data_dict = dict(recent_data)
+                                logger.info("Reconstructing data structure")
                                 reconstructed_data = {}
+                                
                                 for key, value in recent_data_dict.items():
                                     if '.' in key:
                                         parts = key.split('.')
@@ -1299,101 +1352,117 @@ def analyze():
                                         try:
                                             historical_data = json.loads(reconstructed_data['financial_data']['historical_data'])
                                             reconstructed_data['financial_data']['historical_data'] = historical_data
+                                            logger.info("Successfully parsed historical_data")
                                         except json.JSONDecodeError as e:
                                             logger.error(f"Error parsing historical_data: {e}")
                                 
+                                # Parse news_data.articles if it exists
+                                if 'news_data' in reconstructed_data:
+                                    try:
+                                        if isinstance(reconstructed_data['news_data'], str):
+                                            news_data = json.loads(reconstructed_data['news_data'])
+                                            reconstructed_data['news_data'] = news_data
+                                            logger.info("Successfully parsed news_data from string")
+                                        else:
+                                            logger.info("news_data is already a dictionary, no parsing needed")
+                                    except json.JSONDecodeError as e:
+                                        logger.error(f"Error parsing news_data: {e}")
+                                
                                 reconstructed_data['last_run'] = last_run_time.isoformat()
+                                logger.info("Successfully reconstructed cached data")
                                 yield send_sse_message({"step": "complete", "status": "success", "data": reconstructed_data})
                                 return
                             else:
-                                logger.info("No cached data found")
+                                logger.info("No cached data found in database")
                                 yield send_sse_message({"step": "cache", "status": "error", "message": "No cached data found"})
                         else:
-                            logger.info("Cache expired, running pipeline")
-                            yield send_sse_message({"step": "cache", "status": "info", "message": "Cache expired, running pipeline"})
+                            logger.info(f"Cache expired (age: {cache_age_hours:.2f} hours), running pipeline")
+                            yield send_sse_message({"step": "cache", "status": "info", "message": f"Cache expired (age: {cache_age_hours:.2f} hours), running pipeline"})
                     else:
-                        logger.info("Force refresh requested, running pipeline")
-                        yield send_sse_message({"step": "cache", "status": "info", "message": "Force refresh requested, running pipeline"})
+                        logger.info("No cache found, running pipeline")
+                        yield send_sse_message({"step": "cache", "status": "info", "message": "No cache found, running pipeline"})
 
-                # Step 1: Financial data
-                logger.info("Starting company info fetch")
-                yield send_sse_message({"step": "company_info", "status": "started", "message": "Fetching company info"})
-                company_info = get_company_info(ticker)
-                
-                if "error" in company_info:
-                    logger.error(f"Error in company info: {company_info['error']}")
-                    yield send_sse_message({"step": "company_info", "status": "error", "message": company_info["error"]})
-                    return
-
-                logger.info(f"Got company info for {company_info['name']}")
-                yield send_sse_message({"step": "company_info", "status": "success", "message": f"Got data for {company_info['name']}"})
-
-                # Step 2: Get financial data
-                logger.info("Starting financial data fetch")
-                yield send_sse_message({"step": "financial_data", "status": "started", "message": "Fetching financial data"})
-                financial_data = get_financial_data(ticker, period="1mo")
-                
-                if "error" in financial_data:
-                    logger.error(f"Error in financial data: {financial_data['error']}")
-                    yield send_sse_message({"step": "financial_data", "status": "error", "message": financial_data["error"]})
-                    return
+                # Only run pipeline if cache is expired or no cache exists
+                if force_refresh or not result or not result[0] or cache_age >= timedelta(hours=1):
+                    # Step 1: Financial data
+                    logger.info("Starting company info fetch")
+                    yield send_sse_message({"step": "company_info", "status": "started", "message": "Fetching company info"})
+                    company_info = get_company_info(ticker)
                     
-                logger.info("Got financial data")
-                yield send_sse_message({"step": "financial_data", "status": "success", "message": "Got financial data"})
+                    if "error" in company_info:
+                        logger.error(f"Error in company info: {company_info['error']}")
+                        yield send_sse_message({"step": "company_info", "status": "error", "message": company_info["error"]})
+                        return
 
-                # Step 3: News data
-                logger.info("Starting news analysis")
-                yield send_sse_message({"step": "news", "status": "started", "message": "Analyzing news"})
-                news_data = get_news_and_extract_keywords(company_info['name'], days=2)
-                logger.info(f"Found {len(news_data['articles'])} articles")
-                yield send_sse_message({"step": "news", "status": "success", "message": f"Found {len(news_data['articles'])} articles"})
+                    logger.info(f"Got company info for {company_info['name']}")
+                    yield send_sse_message({"step": "company_info", "status": "success", "message": f"Got data for {company_info['name']}"})
 
-                # Step 4: Expand keywords with AI
-                logger.info("Starting keyword expansion")
-                yield send_sse_message({"step": "keywords", "status": "started", "message": "Expanding keywords"})
-                top_keywords = [k[0] for k in news_data['top_keywords'][:10]]
-                expanded_data = expand_keywords_and_generate_queries(company_info['name'], top_keywords, company_info.get('industry', 'N/A'))
-                logger.info("Generated search queries")
-                yield send_sse_message({"step": "keywords", "status": "success", "message": "Generated search queries"})
+                    # Step 2: Get financial data
+                    logger.info("Starting financial data fetch")
+                    yield send_sse_message({"step": "financial_data", "status": "started", "message": "Fetching financial data"})
+                    financial_data = get_financial_data(ticker, period="1mo")
+                    
+                    if "error" in financial_data:
+                        logger.error(f"Error in financial data: {financial_data['error']}")
+                        yield send_sse_message({"step": "financial_data", "status": "error", "message": financial_data["error"]})
+                        return
+                        
+                    logger.info("Got financial data")
+                    yield send_sse_message({"step": "financial_data", "status": "success", "message": "Got financial data"})
 
-                # Step 5: Scraping social media
-                logger.info("Starting social media analysis")
-                yield send_sse_message({"step": "social", "status": "started", "message": "Analyzing social media"})
-                social_data = scrape_social_media(company_info['name'], expanded_data['search_queries'])
-                logger.info(f"Analyzed {social_data['total_posts']} posts")
-                yield send_sse_message({"step": "social", "status": "success", "message": f"Analyzed {social_data['total_posts']} posts"})
+                    # Step 3: News data
+                    logger.info("Starting news analysis")
+                    yield send_sse_message({"step": "news", "status": "started", "message": "Analyzing news"})
+                    news_data = get_news_and_extract_keywords(company_info['name'], days=2)
+                    logger.info(f"Found {len(news_data['articles'])} articles")
+                    yield send_sse_message({"step": "news", "status": "success", "message": f"Found {len(news_data['articles'])} articles"})
 
-                # Step 6: Calculate metrics
-                logger.info("Starting metrics calculation")
-                yield send_sse_message({"step": "metrics", "status": "started", "message": "Calculating metrics"})
-                scores = calculate_metrics(financial_data, news_data, social_data)
-                logger.info("Calculated all scores")
-                yield send_sse_message({"step": "metrics", "status": "success", "message": "Calculated all scores"})
+                    # Step 4: Expand keywords with AI
+                    logger.info("Starting keyword expansion")
+                    yield send_sse_message({"step": "keywords", "status": "started", "message": "Expanding keywords"})
+                    top_keywords = [k[0] for k in news_data['top_keywords'][:10]]
+                    expanded_data = expand_keywords_and_generate_queries(company_info['name'], top_keywords, company_info.get('industry', 'N/A'))
+                    logger.info("Generated search queries")
+                    yield send_sse_message({"step": "keywords", "status": "success", "message": "Generated search queries"})
 
-                # Prepare the response structure
-                res = {
-                    "company_info": company_info,
-                    "financial_data": financial_data,
-                    "news_data": news_data,
-                    "expanded_data": expanded_data,
-                    "social_data": social_data,
-                    "scores": scores,
-                    "last_run": now_utc.isoformat()
-                }
+                    # Step 5: Scraping social media
+                    logger.info("Starting social media analysis")
+                    yield send_sse_message({"step": "social", "status": "started", "message": "Analyzing social media"})
+                    social_data = scrape_social_media(company_info['name'], expanded_data['search_queries'])
+                    logger.info(f"Analyzed {social_data['total_posts']} posts")
+                    yield send_sse_message({"step": "social", "status": "success", "message": f"Analyzed {social_data['total_posts']} posts"})
 
-                try:
-                    flattened = flatten_nested_dict(res)
-                    df_flat = pd.DataFrame([flattened])
+                    # Step 6: Calculate metrics
+                    logger.info("Starting metrics calculation")
+                    yield send_sse_message({"step": "metrics", "status": "started", "message": "Calculating metrics"})
+                    scores = calculate_metrics(financial_data, news_data, social_data)
+                    logger.info("Calculated all scores")
+                    yield send_sse_message({"step": "metrics", "status": "success", "message": "Calculated all scores"})
 
-                    with engine.begin() as conn:
-                        conn.execute(text("DELETE FROM data WHERE `company_info.ticker` = :ticker"), {"ticker": ticker})
-                        df_flat.to_sql("data", con=conn, if_exists="append", index=False)
-                        yield send_sse_message({"step": "complete", "status": "success", "data": res})
-                except Exception as e:
-                    error_msg = f"Error in data processing: {str(e)}"
-                    logger.error(error_msg)
-                    yield send_sse_message({"step": "complete", "status": "error", "message": error_msg})
-                    raise
+                    # Prepare the response structure
+                    res = {
+                        "company_info": company_info,
+                        "financial_data": financial_data,
+                        "news_data": news_data,
+                        "expanded_data": expanded_data,
+                        "social_data": social_data,
+                        "scores": scores,
+                        "last_run": now_utc.isoformat()
+                    }
+
+                    try:
+                        flattened = flatten_nested_dict(res)
+                        df_flat = pd.DataFrame([flattened])
+
+                        with engine.begin() as conn:
+                            conn.execute(text("DELETE FROM data WHERE `company_info.ticker` = :ticker"), {"ticker": ticker})
+                            df_flat.to_sql("data", con=conn, if_exists="append", index=False)
+                            yield send_sse_message({"step": "complete", "status": "success", "data": res})
+                    except Exception as e:
+                        error_msg = f"Error in data processing: {str(e)}"
+                        logger.error(error_msg)
+                        yield send_sse_message({"step": "complete", "status": "error", "message": error_msg})
+                        raise
 
             except Exception as e:
                 error_msg = f"Error in pipeline: {str(e)}"
@@ -1433,24 +1502,131 @@ def get_price(ticker):
             "error": str(e)
         }), 500
 
-
-def get_alpha_vantage_trending():
-    url = f"https://www.alphavantage.co/query?function=TOP_GAINERS_LOSERS&apikey={API_KEY}"
-
+@app.route('/api/market/trending', methods=['GET'])
+def get_trending_stocks():
+    """Get trending stocks from Alpha Vantage with caching"""
     try:
+        # Check cache in database
+        with engine.connect() as conn:
+            result = conn.execute(
+                text("SELECT * FROM market_trends WHERE DATE(last_updated) = CURDATE()")
+            ).fetchone()
+
+            if result:
+                # Return cached data
+                return jsonify({
+                    "status": "success",
+                    "data": json.loads(result.trending_data)
+                })
+
+        # If no cache or cache is old, fetch new data
+        url = f"https://www.alphavantage.co/query?function=TOP_GAINERS_LOSERS&apikey={alpha_vantage_api_key}"
+        logger.info(f"Fetching trending stocks from Alpha Vantage")
         response = requests.get(url, timeout=10)
         data = response.json()
+        logger.info(f"Alpha Vantage response: {data}")
 
+        if 'top_gainers' not in data:
+            logger.error(f"No top_gainers in response: {data}")
+            return jsonify({
+                "status": "error",
+                "error": "No trending stocks data available"
+            }), 500
 
-        trending = [
-            f"{stock['ticker']} ({stock['price']})"
-            for stock in data.get('top_gainers', [])
-        ]
-        return trending[:10]
+        trending = []
+        for stock in data.get('top_gainers', [])[:10]:
+            try:
+                # Get company overview from Alpha Vantage
+                overview_url = f"https://www.alphavantage.co/query?function=OVERVIEW&symbol={stock['ticker']}&apikey={alpha_vantage_api_key}"
+                logger.info(f"Fetching overview for {stock['ticker']}")
+                overview_response = requests.get(overview_url, timeout=10)
+                overview_data = overview_response.json()
+                logger.info(f"Overview response for {stock['ticker']}: {overview_data}")
+
+                # Handle potential missing fields
+                price = stock.get('price', '0')
+                change_amount = stock.get('change_amount', '0')
+                change_percentage = stock.get('change_percentage', '0')
+
+                trending.append({
+                    "ticker": stock['ticker'],
+                    "price": price,
+                    "change": change_amount,
+                    "changePercent": change_percentage,
+                    "industry": overview_data.get('Industry', 'N/A'),
+                    "sector": overview_data.get('Sector', 'N/A')
+                })
+            except Exception as e:
+                logger.error(f"Error processing stock {stock.get('ticker', 'unknown')}: {str(e)}")
+                continue
+
+        if not trending:
+            logger.error("No trending stocks were processed successfully")
+            return jsonify({
+                "status": "error",
+                "error": "Failed to process any trending stocks"
+            }), 500
+
+        # Cache the data in database
+        try:
+            with engine.begin() as conn:
+                # Delete old data
+                conn.execute(text("DELETE FROM market_trends WHERE DATE(last_updated) < CURDATE()"))
+                # Insert new data
+                conn.execute(
+                    text("INSERT INTO market_trends (trending_data, last_updated) VALUES (:data, NOW())"),
+                    {"data": json.dumps(trending)}
+                )
+        except Exception as e:
+            logger.error(f"Error caching market trends: {str(e)}")
+            # Continue even if caching fails
+
+        return jsonify({
+            "status": "success",
+            "data": trending
+        })
 
     except Exception as e:
-        print(f"Error with Alpha Vantage: {e}")
-        return []
+        logger.error(f"Error in get_trending_stocks: {str(e)}")
+        logger.error(f"Full error details: {traceback.format_exc()}")
+        return jsonify({
+            "status": "error",
+            "error": str(e)
+        }), 500
+
+# Add this near the top of the file with other database setup code
+def init_market_trends_table():
+    """Initialize the market_trends table if it doesn't exist"""
+    try:
+        with engine.connect() as conn:
+            # Check if table exists
+            result = conn.execute(text("""
+                SELECT COUNT(*)
+                FROM information_schema.tables 
+                WHERE table_schema = DATABASE()
+                AND table_name = 'market_trends'
+            """)).scalar()
+            
+            if result == 0:
+                logger.info("Creating market_trends table")
+                conn.execute(text("""
+                    CREATE TABLE market_trends (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        trending_data JSON,
+                        last_updated DATETIME,
+                        INDEX (last_updated)
+                    )
+                """))
+                conn.commit()
+                logger.info("market_trends table created successfully")
+            else:
+                logger.info("market_trends table already exists")
+    except Exception as e:
+        logger.error(f"Error initializing market_trends table: {str(e)}")
+        logger.error(f"Full error details: {traceback.format_exc()}")
+
+# Call this after engine initialization
+init_market_trends_table()
 
 # Error handlers
 @app.errorhandler(404)
