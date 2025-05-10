@@ -1,27 +1,33 @@
-"use client"
-
 import "./globals.css"
 import { Inter } from "next/font/google"
 import type React from "react"
 import { ThemeProvider } from "@/components/theme-provider"
-import BackgroundPaths from "@/components/background-paths"
 import { Toaster } from "@/components/ui/sonner"
-import { usePathname } from "next/navigation"
+import { SettingsProvider } from "@/contexts/settings-context"
+import { Metadata } from "next"
+import { BackgroundWrapper } from "@/components/background-wrapper"
+import { ClientLayout } from "./components/client-layout"
 
 const inter = Inter({ subsets: ["latin"] })
+
+export const metadata: Metadata = {
+  title: 'TradeVision',
+  description: 'Visualize your trading strategies with interactive 3D models',
+  icons: {
+    icon: '/favicon.ico',
+  },
+}
 
 export default function RootLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
-  const pathname = usePathname()
-  const showBackground = pathname !== '/'
-
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
         <link rel="preconnect" href="https://andrewma.b-cdn.net/" crossOrigin="anonymous"></link>
+        <link rel="icon" href="/favicon.ico" sizes="any" />
       </head>
       <body className={`${inter.className} min-h-screen relative`}>
         <ThemeProvider
@@ -30,14 +36,12 @@ export default function RootLayout({
           enableSystem={true}
           disableTransitionOnChange
         >
-          {showBackground && (
-            <div className="fixed inset-0 z-0">
-              <BackgroundPaths />
-            </div>
-          )}
-          <main className="relative z-10">
-            {children}
-          </main>
+          <SettingsProvider>
+            <BackgroundWrapper />
+            <ClientLayout>
+              {children}
+            </ClientLayout>
+          </SettingsProvider>
           <Toaster />
         </ThemeProvider>
       </body>

@@ -11,6 +11,7 @@ import { Progress } from "@/components/ui/progress";
 import { Info } from "lucide-react";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { motion, useInView } from "framer-motion";
+import { useSettings } from "@/contexts/settings-context";
 
 interface PipelineStep {
   step: string;
@@ -198,8 +199,10 @@ function ScoreBreakdown({ scores }: { scores: any }) {
 export default function AnalyzeStock({ searchValue, onLoadingChange, onSearchValueChange }: AnalyzeStockProps) {
   const [result, setResult] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<string | null>(null);
   const [pipelineSteps, setPipelineSteps] = useState<PipelineStep[]>([]);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const { showRawData } = useSettings();
 
   // Add effect to handle URL parameters
   useEffect(() => {
@@ -214,7 +217,45 @@ export default function AnalyzeStock({ searchValue, onLoadingChange, onSearchVal
   // Add initial data fetch when component mounts or searchValue changes
   React.useEffect(() => {
     if (searchValue.trim()) {
-      handleAnalyze(false);
+      const checkAndRefreshData = () => {
+        const stockData = result?.results[searchValue.toUpperCase()]?.result;
+        const lastRun = stockData?.last_run;
+
+        // If we have no data or no last_run, we should fetch
+        if (!stockData || !lastRun) {
+          console.log("No data or last_run timestamp, fetching fresh data...");
+          handleAnalyze(false);  // Don't force refresh for initial fetch
+          return;
+        }
+
+        try {
+          const lastRunDate = new Date(lastRun);
+          const now = new Date();
+          
+          // Check if the date is valid
+          if (isNaN(lastRunDate.getTime())) {
+            console.log("Invalid last_run date, fetching fresh data...");
+            handleAnalyze(false);  // Don't force refresh for invalid date
+            return;
+          }
+
+          const hoursSinceLastRun = (now.getTime() - lastRunDate.getTime()) / (1000 * 60 * 60);
+          
+          if (hoursSinceLastRun >= 1) {
+            console.log(`Data is ${hoursSinceLastRun.toFixed(1)} hours old, refreshing...`);
+            handleAnalyze(false);  // Don't force refresh for expired data
+          } else {
+            console.log(`Data is fresh (${hoursSinceLastRun.toFixed(1)} hours old)`);
+            // Don't call handleAnalyze at all for fresh data
+          }
+        } catch (error) {
+          console.error("Error checking last_run:", error);
+          // If there's any error parsing the date, fetch fresh data
+          handleAnalyze(false);  // Don't force refresh for errors
+        }
+      };
+
+      checkAndRefreshData();
     }
   }, [searchValue]);
 
@@ -375,51 +416,6 @@ export default function AnalyzeStock({ searchValue, onLoadingChange, onSearchVal
     }
   };
 
-  // Call checkAndRefreshData on mount and when searchValue changes
-  React.useEffect(() => {
-    const checkAndRefreshData = () => {
-      if (!searchValue.trim()) return;
-
-      const stockData = result?.results[searchValue.toUpperCase()]?.result;
-      const lastRun = stockData?.last_run;
-
-      // If we have no data or no last_run, we should fetch
-      if (!stockData || !lastRun) {
-        console.log("No data or last_run timestamp, fetching fresh data...");
-        handleAnalyze(false);  // Don't force refresh for initial fetch
-        return;
-      }
-
-      try {
-        const lastRunDate = new Date(lastRun);
-        const now = new Date();
-        
-        // Check if the date is valid
-        if (isNaN(lastRunDate.getTime())) {
-          console.log("Invalid last_run date, fetching fresh data...");
-          handleAnalyze(false);  // Don't force refresh for invalid date
-          return;
-        }
-
-        const hoursSinceLastRun = (now.getTime() - lastRunDate.getTime()) / (1000 * 60 * 60);
-        
-        if (hoursSinceLastRun >= 1) {
-          console.log(`Data is ${hoursSinceLastRun.toFixed(1)} hours old, refreshing...`);
-          handleAnalyze(false);  // Don't force refresh for expired data
-        } else {
-          console.log(`Data is fresh (${hoursSinceLastRun.toFixed(1)} hours old)`);
-          // Don't call handleAnalyze at all for fresh data
-        }
-      } catch (error) {
-        console.error("Error checking last_run:", error);
-        // If there's any error parsing the date, fetch fresh data
-        handleAnalyze(false);  // Don't force refresh for errors
-      }
-    };
-
-    checkAndRefreshData();
-  }, [result, searchValue]); // Add result as a dependency
-
   // Debug log before rendering
   if (result) {
     const stockData = result.results[searchValue.toUpperCase()]?.result;
@@ -429,18 +425,23 @@ export default function AnalyzeStock({ searchValue, onLoadingChange, onSearchVal
   }
 
   // Refresh handler
-  const handleRefresh = () => {
-    handleAnalyze(true);
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await handleAnalyze(true);
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
   return (
     <div className="w-full max-w-4xl mx-auto p-4">
       <div className="min-h-[400px]">
-        {loading && (
+        {(loading || isRefreshing) && (
           <div className="h-full flex flex-col items-center justify-center">
-            <div className="p-4 bg-white/80 backdrop-blur-sm rounded-lg flex flex-col items-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
-              <p className="mt-4 text-gray-500 text-center">
+            <div className="p-4 bg-card/50 backdrop-blur-sm rounded-lg border flex flex-col items-center">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+              <p className="mt-4 text-muted-foreground text-center">
                 {pipelineSteps.length > 0 
                   ? `${pipelineSteps[pipelineSteps.length - 1].message}...`
                   : `Analyzing ${searchValue}...`}
@@ -456,7 +457,7 @@ export default function AnalyzeStock({ searchValue, onLoadingChange, onSearchVal
           </div>
         )}
 
-        {result && !loading && (
+        {result && !loading && !isRefreshing && (
           <>
             {(() => {
               console.log("DEBUG: AnalyzeStock result:", result);
@@ -587,20 +588,22 @@ export default function AnalyzeStock({ searchValue, onLoadingChange, onSearchVal
                 );
               })()}
               
-              <Accordion type="single" collapsible className="bg-white rounded-lg shadow">
-                <AccordionItem value="raw-data" className="border-none">
-                  <AccordionTrigger className="text-xl font-semibold px-6 py-4 hover:no-underline">
-                    Raw Data
-                  </AccordionTrigger>
-                  <AccordionContent className="px-6 pb-6">
-                    <div className="bg-gray-50 rounded-lg p-4">
-                      <pre className="overflow-auto max-h-96 max-w-[700px]">
-                        {JSON.stringify(result, null, 2)}
-                      </pre>
-                    </div>
-                  </AccordionContent>
-                </AccordionItem>
-              </Accordion>
+              {showRawData && (
+                <Accordion type="single" collapsible className="bg-card rounded-lg shadow">
+                  <AccordionItem value="raw-data" className="border-none">
+                    <AccordionTrigger className="text-xl font-semibold px-6 py-4 hover:no-underline">
+                      Raw Data
+                    </AccordionTrigger>
+                    <AccordionContent className="px-6 pb-6">
+                      <div className="bg-muted rounded-lg p-4">
+                        <pre className="overflow-auto max-h-96 max-w-[700px] text-foreground">
+                          {JSON.stringify(result, null, 2)}
+                        </pre>
+                      </div>
+                    </AccordionContent>
+                  </AccordionItem>
+                </Accordion>
+              )}
             </div>
           </>
         )}

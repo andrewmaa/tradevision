@@ -1,5 +1,5 @@
 import React from 'react';
-import { HoverCard, HoverCardTrigger, HoverCardContent } from "@/components/ui/hover-card";
+import { SettingsAwareTooltip } from "@/components/ui/settings-aware-tooltip";
 
 function ScoreCircle({ score }: { score: number }) {
     const radius = 36;
@@ -59,64 +59,61 @@ function ScoreCircle({ score }: { score: number }) {
     const scoreColor = getScoreColor(animatedScore);
   
     return (
-      <HoverCard openDelay={0} closeDelay={0}>
-        <HoverCardTrigger asChild>
-          <div className="cursor-help group">
-            <svg 
-              height={radius * 2 + 4} 
-              width={radius * 2 + 4} 
-              viewBox={`0 0 ${radius * 2 + 4} ${radius * 2 + 4}`}
-              className="translate-x-[-2px] translate-y-[-2px]"
+      <SettingsAwareTooltip content={
+        <div className="space-y-2">
+          <h4 className="text-sm font-semibold">Hype Index Score: {Math.round(animatedScore)}</h4>
+          <p className="text-sm text-muted-foreground">
+            {getTooltipMessage(animatedScore)}
+          </p>
+        </div>
+      }>
+        <div className="group">
+          <svg 
+            height={radius * 2 + 4} 
+            width={radius * 2 + 4} 
+            viewBox={`0 0 ${radius * 2 + 4} ${radius * 2 + 4}`}
+            className="translate-x-[-2px] translate-y-[-2px]"
+          >
+            <circle
+              stroke="hsl(var(--muted))"
+              fill="transparent"
+              strokeWidth={stroke}
+              r={normalizedRadius}
+              cx={radius + 2}
+              cy={radius + 2}
+              className="transition-all duration-200 group-hover:stroke-[10px]"
+            />
+            <circle
+              stroke={scoreColor}
+              fill="transparent"
+              strokeWidth={stroke}
+              strokeLinecap="round"
+              strokeDasharray={circumference + ' ' + circumference}
+              style={{ 
+                strokeDashoffset, 
+                transition: 'stroke-dashoffset 0.5s, stroke 0.5s, stroke-width 0.2s',
+                transform: 'rotate(-90deg)',
+                transformOrigin: 'center'
+              }}
+              r={normalizedRadius}
+              cx={radius + 2}
+              cy={radius + 2}
+              className="transition-all duration-200 group-hover:stroke-[10px]"
+            />
+            <text
+              x={radius + 2}
+              y={radius + 2}
+              textAnchor="middle"
+              dominantBaseline="central"
+              fontSize="1.5rem"
+              fontWeight="bold"
+              fill="hsl(var(--foreground))"
             >
-              <circle
-                stroke="#e5e7eb"
-                fill="transparent"
-                strokeWidth={stroke}
-                r={normalizedRadius}
-                cx={radius + 2}
-                cy={radius + 2}
-                className="transition-all duration-200 group-hover:stroke-[10px]"
-              />
-              <circle
-                stroke={scoreColor}
-                fill="transparent"
-                strokeWidth={stroke}
-                strokeLinecap="round"
-                strokeDasharray={circumference + ' ' + circumference}
-                style={{ 
-                  strokeDashoffset, 
-                  transition: 'stroke-dashoffset 0.5s, stroke 0.5s, stroke-width 0.2s',
-                  transform: 'rotate(-90deg)',
-                  transformOrigin: 'center'
-                }}
-                r={normalizedRadius}
-                cx={radius + 2}
-                cy={radius + 2}
-                className="transition-all duration-200 group-hover:stroke-[10px]"
-              />
-              <text
-                x={radius + 2}
-                y={radius + 2}
-                textAnchor="middle"
-                dominantBaseline="middle"
-                fontSize="1.5rem"
-                fontWeight="bold"
-                fill="#222"
-              >
-                {Math.round(animatedScore)}
-              </text>
-            </svg>
-          </div>
-        </HoverCardTrigger>
-        <HoverCardContent className="w-80">
-          <div className="space-y-2">
-            <h4 className="text-sm font-semibold">Hype Index Score: {Math.round(animatedScore)}</h4>
-            <p className="text-sm text-muted-foreground">
-              {getTooltipMessage(animatedScore)}
-            </p>
-          </div>
-        </HoverCardContent>
-      </HoverCard>
+              {Math.round(animatedScore)}
+            </text>
+          </svg>
+        </div>
+      </SettingsAwareTooltip>
     );
   }
 

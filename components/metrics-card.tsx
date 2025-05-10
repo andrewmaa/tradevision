@@ -1,11 +1,13 @@
-import { Card } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { ArrowUpRight } from "lucide-react"
-import React from "react"
+import { ArrowUpRight, Info, RefreshCw, BookmarkCheck, BookmarkPlus } from "lucide-react"
+import React, { useRef } from "react"
 import StockHeaderCard from "./StockHeaderCard"
 import StockChart from "./StockChart"
 import { API_BASE_URL } from '../app/api/stock-service'
+import { motion, useInView } from "framer-motion"
+import { Button } from "@/components/ui/button"
 
 // Get tooltip message based on score
 const getTooltipMessage = (score: number) => {
@@ -18,17 +20,112 @@ const getTooltipMessage = (score: number) => {
   return "This score indicates concerning market sentiment with potential risks, suggesting careful evaluation before investment.";
 };
 
-interface MetricsCardProps {
-  title: string
-  value: string
-  companyName: string
-  change: {
-    value: string
-    percentage: string
-    isPositive: boolean
-  }
-  chart?: React.ReactNode
+// AnimatedProgress component
+const AnimatedProgress = ({ value, className }: { value: number; className?: string }) => {
+  const ref = useRef(null);
+  const isInView = useInView(ref, { once: true, amount: 0.2 });
+
+  return (
+    <div ref={ref} className={`relative h-2 w-full overflow-hidden rounded-full bg-gray-100 ${className}`}>
+      <motion.div
+        className="absolute left-0 top-0 h-full bg-primary"
+        initial={{ width: 0 }}
+        animate={isInView ? { width: `${value}%` } : { width: 0 }}
+        transition={{ duration: 0.8, ease: "easeOut" }}
+      />
+    </div>
+  );
+};
+
+// ScoreBreakdown component
+function ScoreBreakdown({ scores }: { scores: any }) {
+  const ref = useRef(null);
+  const isInView = useInView(ref, { once: true, amount: 0.2 });
+
+  const scoreItems = [
+    {
+      name: "Financial Momentum",
+      value: scores.financial_momentum,
+      description: "Measures recent price and volume trends relative to historical performance"
+    },
+    {
+      name: "News Sentiment",
+      value: scores.news_sentiment,
+      description: "Overall sentiment from news articles and financial reports"
+    },
+    {
+      name: "Social Buzz",
+      value: scores.social_buzz,
+      description: "Social media engagement and sentiment analysis"
+    },
+    {
+      name: "Sentiment-Price Divergence",
+      value: scores.sentiment_price_divergence,
+      description: "Difference between market sentiment and price movement"
+    },
+    {
+      name: "Hype Index",
+      value: scores.hype_index,
+      description: "Combined score of all metrics weighted by importance"
+    }
+  ];
+
+  return (
+    <Card className="w-full" ref={ref}>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          Score Breakdown
+          <HoverCard openDelay={0} closeDelay={0}>
+            <HoverCardTrigger>
+              <Info className="h-4 w-4 text-gray-400" />
+            </HoverCardTrigger>
+            <HoverCardContent className="w-80">
+              <p className="text-sm">
+                Each score is calculated on a scale of 0-100, with higher values indicating stronger positive signals.
+                The Hype Index combines all metrics to give an overall assessment.
+              </p>
+            </HoverCardContent>
+          </HoverCard>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        {scoreItems.map((item, index) => (
+          <motion.div
+            key={item.name}
+            className="space-y-2"
+            initial={{ opacity: 0, y: 20 }}
+            animate={isInView ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }}
+            transition={{ duration: 0.5, delay: index * 0.1 }}
+          >
+            <div className="flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                <span className="font-medium">{item.name}</span>
+                <HoverCard openDelay={0} closeDelay={0}>
+                  <HoverCardTrigger>
+                    <Info className="h-4 w-4 text-gray-400" />
+                  </HoverCardTrigger>
+                  <HoverCardContent className="w-80">
+                    <p className="text-sm">{item.description}</p>
+                  </HoverCardContent>
+                </HoverCard>
+              </div>
+              <motion.span 
+                className="text-sm font-medium"
+                initial={{ opacity: 0 }}
+                animate={isInView ? { opacity: 1 } : { opacity: 0 }}
+                transition={{ duration: 0.5, delay: index * 0.1 + 0.3 }}
+              >
+                {item.value.toFixed(1)}
+              </motion.span>
+            </div>
+            <AnimatedProgress value={item.value} />
+          </motion.div>
+        ))}
+      </CardContent>
+    </Card>
+  );
 }
+
 // ScoreCircle component
 function ScoreCircle({ score }: { score: number }) {
   const radius = 36;
@@ -113,10 +210,10 @@ function ScoreCircle({ score }: { score: number }) {
               x={radius + 2}
               y={radius + 2}
               textAnchor="middle"
-              dominantBaseline="middle"
+              dominantBaseline="central"
               fontSize="1.5rem"
               fontWeight="bold"
-              fill="#222"
+              fill="hsl(var(--foreground))"
             >
               {Math.round(animatedScore)}
             </text>
@@ -135,11 +232,24 @@ function ScoreCircle({ score }: { score: number }) {
   );
 }
 
+interface MetricsCardProps {
+  title: string
+  value: string
+  companyName: string
+  change: {
+    value: string
+    percentage: string
+    isPositive: boolean
+  }
+  chart?: React.ReactNode
+}
+
 export function MetricsCard({ title, value, companyName, change, chart }: MetricsCardProps) {
   const score = Number(value);
   const [showDetails, setShowDetails] = React.useState(false);
   const [stockData, setStockData] = React.useState<any>(null);
   const [loading, setLoading] = React.useState(false);
+  const [isSaved, setIsSaved] = React.useState(false);
 
   const fetchStockDetails = async () => {
     setLoading(true);
@@ -149,7 +259,7 @@ export function MetricsCard({ title, value, companyName, change, chart }: Metric
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
-          "Accept": "application/json"
+          "Accept": "text/event-stream"
         },
         mode: 'cors',
         credentials: 'omit',
@@ -159,72 +269,68 @@ export function MetricsCard({ title, value, companyName, change, chart }: Metric
         }),
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        console.log("Raw API response:", data);
-        
-        if (!data || !data.result) {
-          console.error("Invalid API response structure:", data);
-          throw new Error("Invalid API response structure");
-        }
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
 
-        const stockResult = data.result;
-        console.log("Stock result:", stockResult);
-        
-        if (stockResult?.last_run) {
-          const lastRun = new Date(stockResult.last_run);
-          const now = new Date();
-          const hoursSinceLastRun = (now.getTime() - lastRun.getTime()) / (1000 * 60 * 60);
+      if (!response.body) {
+        throw new Error('No response body available');
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
           
-          // If data is older than 1 hour, refresh it
-          if (hoursSinceLastRun >= 1) {
-            console.log("Data is older than 1 hour, refreshing...");
-            const refreshResponse = await fetch(`${API_BASE_URL}/analyze`, {
-              method: "POST",
-              headers: { 
-                "Content-Type": "application/json",
-                "Accept": "application/json"
-              },
-              mode: 'cors',
-              credentials: 'omit',
-              body: JSON.stringify({ 
-                symbol: title,
-                force_refresh: true 
-              }),
-            });
-            
-            if (refreshResponse.ok) {
-              const refreshData = await refreshResponse.json();
-              setStockData(refreshData.results?.[title]?.result);
+          if (done) {
+            console.log(`Stream complete for ${title}`);
+            // Process any remaining data in the buffer
+            if (buffer.trim()) {
+              const lines = buffer.split('\n\n');
+              for (const line of lines) {
+                if (line.trim()) {
+                  console.log(`Processing final buffer for ${title}:`, line);
+                  const [eventLine, dataLine] = line.split('\n');
+                  if (dataLine) {
+                    const data = JSON.parse(dataLine.replace('data: ', ''));
+                    console.log(`Final data for ${title}:`, data);
+                    if (data.step === 'complete' && data.status === 'success' && data.data) {
+                      setStockData(data.data);
+                    }
+                  }
+                }
+              }
             }
-          } else {
-            console.log("Using cached data, last updated:", lastRun);
-            setStockData(stockResult);
+            break;
           }
-        } else {
-          // If no last_run timestamp, treat as new data
-          console.log("No last_run timestamp, treating as new data");
-          const refreshResponse = await fetch(`${API_BASE_URL}/analyze`, {
-            method: "POST",
-            headers: { 
-              "Content-Type": "application/json",
-              "Accept": "application/json"
-            },
-            mode: 'cors',
-            credentials: 'omit',
-            body: JSON.stringify({ 
-              symbol: title,
-              force_refresh: true 
-            }),
-          });
-          
-          if (refreshResponse.ok) {
-            const refreshData = await refreshResponse.json();
-            setStockData(refreshData.results?.[title]?.result);
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (line.trim()) {
+              console.log(`Processing line for ${title}:`, line);
+              const [eventLine, dataLine] = line.split('\n');
+              if (dataLine) {
+                const data = JSON.parse(dataLine.replace('data: ', ''));
+                console.log(`Received data for ${title}:`, data);
+                if (data.step === 'complete' && data.status === 'success' && data.data) {
+                  console.log(`Updating stock data for ${title}`);
+                  setStockData(data.data);
+                }
+              }
+            }
           }
         }
-      } else {
-        console.error("Failed to fetch data:", response.status);
+      } catch (error) {
+        console.error(`Error reading stream for ${title}:`, error);
+        throw error;
+      } finally {
+        reader.releaseLock();
       }
     } catch (error) {
       console.error(`Error fetching data for ${title}:`, error);
@@ -238,10 +344,18 @@ export function MetricsCard({ title, value, companyName, change, chart }: Metric
     fetchStockDetails();
   };
 
+  const handleRefreshClick = () => {
+    fetchStockDetails();
+  };
+
+  const toggleSaveStock = () => {
+    setIsSaved(!isSaved);
+  };
+
   return (
     <>
       <Card 
-        className="p-4 bg-background/50 backdrop-blur hover:bg-background/70 transition-colors" 
+        className="p-4 bg-background/50 backdrop-blur hover:bg-background/70 transition-colors cursor-pointer" 
         onClick={handleClick}
       >
         <div className="flex items-center justify-between">
@@ -264,7 +378,38 @@ export function MetricsCard({ title, value, companyName, change, chart }: Metric
         </div>
       </Card>
 
-      
+      <Dialog open={showDetails} onOpenChange={setShowDetails}>
+        <DialogContent className="w-[500px] h-[600px] fixed top-[50%] left-[50%] translate-x-[-50%] translate-y-[-50%] p-6">
+          <DialogHeader className="mb-4">
+            <DialogTitle className="text-2xl font-bold">{companyName}</DialogTitle>
+          </DialogHeader>
+          
+          <div className="h-[calc(100%-5rem)] overflow-y-auto">
+            {loading ? (
+              <div className="flex items-center justify-center p-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+              </div>
+            ) : stockData ? (
+              <div className="space-y-6">
+                <StockHeaderCard
+                  ticker={title}
+                  currentPrice={stockData.financial_data?.current_price}
+                  change={stockData.financial_data?.price_change}
+                  companyInfo={stockData.company_info}
+                  hypeIndex={stockData.scores?.hype_index}
+                  lastRun={stockData.last_run}
+                  onRefresh={() => fetchStockDetails()}
+                  isDashboard={true}
+                />
+              </div>
+            ) : (
+              <div className="text-center p-8 text-muted-foreground">
+                Failed to load stock details. Please try again.
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </>
-  )
+  );
 }

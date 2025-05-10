@@ -1,8 +1,14 @@
 import { NextResponse } from 'next/server';
 
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL 
+  ? (process.env.NEXT_PUBLIC_API_URL.startsWith('http') 
+      ? process.env.NEXT_PUBLIC_API_URL 
+      : `https://${process.env.NEXT_PUBLIC_API_URL}`)
+  : "http://localhost:5001";
+
 export async function GET() {
   try {
-    const response = await fetch('http://localhost:5001/api/market/trending', {
+    const response = await fetch(`${API_BASE_URL}/api/market/trending`, {
       headers: {
         'Content-Type': 'application/json',
       },

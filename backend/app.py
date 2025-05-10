@@ -623,7 +623,7 @@ def expand_keywords_and_generate_queries(keywords, company_name, industry):
     try:
         client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
         response = client.chat.completions.create(
-            model="gpt-4",
+            model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": "You are a helpful assistant that expands keywords and generates search queries."},
                 {"role": "user", "content": prompt.strip()}
@@ -658,19 +658,22 @@ import asyncio
 import time
 
 def fetch_bluesky_posts_and_analyze(company_name, search_queries, analyzer, max_results=100):
+    logger.info(f"Starting Bluesky post fetch for {company_name}")
     BLUESKY_API = "https://bsky.social/xrpc"
     identifier = "tradevision.bsky.social"
     password = "Bluesky!"
 
     try:
+        logger.info("Attempting Bluesky authentication")
         auth_response = requests.post(
             f"{BLUESKY_API}/com.atproto.server.createSession",
             json={"identifier": identifier, "password": password},
         )
         auth_response.raise_for_status()
         access_token = auth_response.json()["accessJwt"]
+        logger.info("Successfully authenticated with Bluesky")
     except Exception as e:
-        print(f"Bluesky auth failed: {e}")
+        logger.error(f"Bluesky auth failed: {e}")
         return []
 
     headers = {"Authorization": f"Bearer {access_token}"}
@@ -678,6 +681,7 @@ def fetch_bluesky_posts_and_analyze(company_name, search_queries, analyzer, max_
 
     for query in search_queries:
         try:
+            logger.info(f"Searching Bluesky for query: {query}")
             response = requests.get(
                 f"{BLUESKY_API}/app.bsky.feed.searchPosts",
                 headers=headers,
@@ -685,6 +689,7 @@ def fetch_bluesky_posts_and_analyze(company_name, search_queries, analyzer, max_
             )
             response.raise_for_status()
             posts = response.json().get("posts", [])
+            logger.info(f"Found {len(posts)} posts for query: {query}")
 
             for post in posts:
                 text = post.get("record", {}).get("text", "")
@@ -703,9 +708,10 @@ def fetch_bluesky_posts_and_analyze(company_name, search_queries, analyzer, max_
                     "sentiment_category": "positive" if sentiment["compound"] > 0.05 else "negative" if sentiment["compound"] < -0.05 else "neutral"
                 })
         except Exception as e:
-            print(f"Bluesky search failed for '{query}': {e}")
+            logger.error(f"Bluesky search failed for '{query}': {e}")
             continue
 
+    logger.info(f"Total Bluesky posts collected: {len(all_posts)}")
     return all_posts
 
 def scrape_social_media(company_name, search_queries, max_results=100):
@@ -895,9 +901,7 @@ def scrape_social_media(company_name, search_queries, max_results=100):
             }
         }
 
-"""# Stock Recommendations
-
-"""
+"""# Stock Recommendations"""
 
 import requests
 
@@ -1184,7 +1188,7 @@ app = Flask(__name__)
 # Configure CORS
 CORS(app, 
      resources={r"/*": {
-         "origins": ["https://tradevision-kappa.vercel.app", "http://localhost:3000", "https://tradevision-production.up.railway.app"],
+         "origins": ["https://tradevision-nyu.vercel.app", "http://localhost:3000", "https://tradevision-production.up.railway.app"],
          "methods": ["GET", "POST", "OPTIONS"],
          "allow_headers": ["Content-Type", "Authorization", "Accept"],
          "supports_credentials": True,
@@ -1204,7 +1208,7 @@ def after_request(response):
     response.headers.add('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
     # Update to allow both localhost and Railway
     origin = request.headers.get('Origin')
-    if origin in ["https://tradevision-kappa.vercel.app", "http://localhost:3000", "https://tradevision-production.up.railway.app"]:
+    if origin in ["https://tradevision-nyu.vercel.app", "http://localhost:3000", "https://tradevision-production.up.railway.app"]:
         response.headers.add('Access-Control-Allow-Origin', origin)
     return response
 
@@ -1594,7 +1598,7 @@ def get_trending_stocks():
             "error": str(e)
         }), 500
 
-# Add this near the top of the file with other database setup code
+
 def init_market_trends_table():
     """Initialize the market_trends table if it doesn't exist"""
     try:

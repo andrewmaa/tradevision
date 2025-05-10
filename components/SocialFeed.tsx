@@ -79,7 +79,7 @@ export default function SocialFeed({ newsData, socialData }: SocialFeedProps) {
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {articles.map((article, index) => (
-                  <div key={index} className="p-4 bg-white/50 backdrop-blur-sm rounded-lg border">
+                  <div key={index} className="p-4 bg-card/50 backdrop-blur-sm rounded-lg border">
                     <div className="flex justify-between items-start">
                       <div className="space-y-1">
                         <h3 className="font-medium">{article.title}</h3>
@@ -117,7 +117,7 @@ export default function SocialFeed({ newsData, socialData }: SocialFeedProps) {
                 {posts
                   .filter(post => post.platform === "Reddit")
                   .map((post, index) => (
-                    <div key={index} className="p-4 bg-white/50 backdrop-blur-sm rounded-lg border">
+                    <div key={index} className="p-4 bg-card/50 backdrop-blur-sm rounded-lg border">
                       <div className="flex flex-col h-full">
                         <div className="flex justify-between items-start mb-2">
                           <h3 className="font-medium flex-1">{post.title || post.text}</h3>
@@ -160,7 +160,7 @@ export default function SocialFeed({ newsData, socialData }: SocialFeedProps) {
                 {posts
                   .filter(post => post.platform === "Bluesky")
                   .map((post, index) => (
-                    <div key={index} className="p-4 bg-white/50 backdrop-blur-sm rounded-lg border">
+                    <div key={index} className="p-4 bg-card/50 backdrop-blur-sm rounded-lg border">
                       <div className="flex justify-between items-start">
                         <div className="space-y-1">
                           <h3 className="font-medium">{post.text}</h3>

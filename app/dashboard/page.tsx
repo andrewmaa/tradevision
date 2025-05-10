@@ -14,7 +14,7 @@ export default function DashboardPage() {
         <div className="flex-1 flex justify-center">
           <main className="w-full max-w-[1200px] p-6 lg:p-8 flex flex-col">
             <div className="flex flex-col items-center justify-center gap-6 mb-8">
-              <h1 className="text-3xl font-bold" style = {{fontSize: "40px"}}>Dashboard</h1>
+              <h1 className="text-3xl font-bold mt-4" style = {{fontSize: "40px"}}>Dashboard</h1>
             </div>
             <div className="flex-1">
               <Dashboard />

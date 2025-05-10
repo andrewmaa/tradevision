@@ -236,7 +236,7 @@ export default function StockChart({ data, companyInfo, onRefresh, loading, stat
         <CardContent className="p-4 sm:p-6">
           <div className="space-y-4 sm:space-y-6">
             {/* Graph */}
-            <div className="h-[300px] sm:h-[400px] relative">
+            <div className="h-[300px] sm:h-[400px] relative cursor-pointer">
               <div className="absolute inset-0 overflow-x-auto overflow-y-hidden">
                 <div className="min-w-[600px] h-full">
                   <ResponsiveContainer width="100%" height="100%">
@@ -248,11 +248,12 @@ export default function StockChart({ data, companyInfo, onRefresh, loading, stat
                         }
                       }}
                       margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
+                      style={{ cursor: 'pointer' }}
                     >
                       <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                       <XAxis
                         dataKey="date"
-                        className="text-xs sm:text-sm text-muted-foreground"
+                        className="text-xs sm:text-sm text-muted-foreground cursor-pointer"
                         tickFormatter={(value) => {
                           const date = new Date(value);
                           return date.toLocaleDateString(undefined, { 
@@ -267,7 +268,7 @@ export default function StockChart({ data, companyInfo, onRefresh, loading, stat
                       />
                       <YAxis
                         yAxisId="left"
-                        className="text-xs sm:text-sm text-muted-foreground"
+                        className="text-xs sm:text-sm text-muted-foreground cursor-pointer"
                         tickFormatter={(value) => `$${value.toFixed(2)}`}
                         domain={['auto', 'auto']}
                         tick={{ fontSize: window.innerWidth < 640 ? 10 : 12 }}
@@ -276,7 +277,7 @@ export default function StockChart({ data, companyInfo, onRefresh, loading, stat
                       <YAxis
                         yAxisId="right"
                         orientation="right"
-                        className="text-xs sm:text-sm text-muted-foreground"
+                        className="text-xs sm:text-sm text-muted-foreground cursor-pointer"
                         tickFormatter={(value) => value.toLocaleString()}
                         domain={['auto', 'auto']}
                         tick={{ fontSize: window.innerWidth < 640 ? 10 : 12 }}
@@ -286,10 +287,10 @@ export default function StockChart({ data, companyInfo, onRefresh, loading, stat
                         content={({ active, payload, label }) => {
                           if (active && payload && payload.length) {
                             return (
-                              <div className="bg-white/90 backdrop-blur-sm p-2 rounded-lg shadow-lg border text-xs sm:text-sm">
-                                <p className="font-semibold">{new Date(label).toLocaleDateString()}</p>
+                              <div className="bg-background/30 backdrop-blur-sm p-2 rounded-lg shadow-lg border text-xs sm:text-sm">
+                                <p className="font-semibold text-foreground">{new Date(label).toLocaleDateString()}</p>
                                 {payload.map((entry: any, index: number) => (
-                                  <p key={index} style={{ color: entry.color }}>
+                                  <p key={index} style={{ color: entry.color }} className="text-foreground">
                                     {entry.name}: {entry.name === 'Volume' 
                                       ? entry.value.toLocaleString() 
                                       : `$${entry.value.toFixed(2)}`}
@@ -309,6 +310,7 @@ export default function StockChart({ data, companyInfo, onRefresh, loading, stat
                           stroke="#f59e42"
                           strokeWidth={2}
                           dot={<CustomDot selectedDate={selectedDate} />}
+                          style={{ cursor: 'pointer' }}
                         />
                       )}
                       {selectedSeries.High && (
@@ -319,6 +321,7 @@ export default function StockChart({ data, companyInfo, onRefresh, loading, stat
                           stroke="#22c55e"
                           strokeWidth={2}
                           dot={<CustomDot selectedDate={selectedDate} />}
+                          style={{ cursor: 'pointer' }}
                         />
                       )}
                       {selectedSeries.Low && (
@@ -329,6 +332,7 @@ export default function StockChart({ data, companyInfo, onRefresh, loading, stat
                           stroke="#ef4444"
                           strokeWidth={2}
                           dot={<CustomDot selectedDate={selectedDate} />}
+                          style={{ cursor: 'pointer' }}
                         />
                       )}
                       {selectedSeries.Close && (
@@ -339,6 +343,7 @@ export default function StockChart({ data, companyInfo, onRefresh, loading, stat
                           stroke="#6366f1"
                           strokeWidth={2}
                           dot={<CustomDot selectedDate={selectedDate} />}
+                          style={{ cursor: 'pointer' }}
                         />
                       )}
                       {selectedSeries.Volume && (
@@ -347,6 +352,7 @@ export default function StockChart({ data, companyInfo, onRefresh, loading, stat
                           dataKey="Volume"
                           fill="#94a3b8"
                           opacity={0.3}
+                          style={{ cursor: 'pointer' }}
                         />
                       )}
                     </ComposedChart>

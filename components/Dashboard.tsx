@@ -160,10 +160,10 @@ export default function Dashboard() {
   if (!isInitialized || isLoading) {
     return (
       <div className="h-full flex flex-col items-center justify-center">
-        <div className="p-4 bg-white/40 rounded-lg flex flex-col items-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
-          <p className="mt-4 text-gray-500">Updating stock data...</p>
-          <p className="mt-2 text-gray-700">Please wait while we fetch the latest stock information.</p>
+        <div className="p-4 bg-card/50 backdrop-blur-sm rounded-lg border flex flex-col items-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+          <p className="mt-4 text-muted-foreground">Updating stock data...</p>
+          <p className="mt-2 text-foreground">Please wait while we fetch the latest stock information.</p>
         </div>
       </div>
     );
@@ -171,9 +171,11 @@ export default function Dashboard() {
 
   if (savedStocks.length === 0) {
     return (
-      <div className="h-full flex flex-col items-center justify-center text-gray-500">
-        <p className="text-lg">No saved stocks yet</p>
-        <p className="text-sm">Search for stocks and save them to your dashboard</p>
+      <div className="h-full flex flex-col items-center justify-center">
+        <div className="p-4 bg-card/50 backdrop-blur-sm rounded-lg border flex flex-col items-center text-gray-500">
+          <p className="text-lg">No saved stocks yet</p>
+          <p className="text-sm">Search for stocks and save them to your dashboard</p>
+        </div>
       </div>
     );
   }

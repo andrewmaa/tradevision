@@ -59,7 +59,7 @@ export default function AnalyzePage() {
         <Sidebar />
         <main className="p-6 lg:p-8 flex flex-col min-h-screen relative">
           <motion.div 
-            className="flex flex-col items-center relative z-10 bg-background/30 backdrop-blur-sm rounded-2xl p-8 w-full max-w-lg mx-auto"
+            className="flex flex-col items-center relative z-10 bg-background/30 backdrop-blur-sm rounded-2xl p-4 w-full max-w-lg mx-auto"
             initial={{ y: "calc(50vh - 50%)", gap: "1.5rem" }}
             animate={{
               y: shouldAnalyze ? 0 : "calc(50vh - 50%)",
@@ -84,6 +84,7 @@ export default function AnalyzePage() {
             >
               TradeVision
             </h1>
+            <p className="text-foreground/50 text-sm">Enter a ticker to analyze. For example, try AAPL, TSLA, or GOOGL!</p>
             <div className="flex justify-center px-4 py-4 gap-2 max-w-md">
               <Input 
                 placeholder="Search" 

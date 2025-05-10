@@ -46,12 +46,12 @@ export function Sidebar({ className }: SidebarProps) {
       >
         <div className="flex h-20 items-center justify-between border-b px-6 py-4">
           <button 
-            className="flex items-center gap-2 hover:opacity-80 transition-opacity cursor-pointer" 
+            className="flex items-center gap-4 hover:opacity-80 transition-opacity cursor-pointer w-full" 
             onClick={() => window.location.href = '/'}
             aria-label="Go to home page"
           >
-            <img src="/logo.svg" alt="Logo" className="h-8 w-8" />
-            <span className="font-bold font-PPTelegraf tracking-tight text-foreground" style={{ fontSize: '24px' }}>TradeVision</span>
+            <img src="/logo.svg" alt="Logo" className="h-10 w-10 flex-shrink-0" />
+            <span className="font-bold font-PPTelegraf tracking-tight text-foreground truncate" style={{ fontSize: '30px' }}>TradeVision</span>
           </button>
           <button
             onClick={() => setIsSidebarOpen(false)}
@@ -74,20 +74,11 @@ export function Sidebar({ className }: SidebarProps) {
             <Globe className="h-4 w-4" />
             Market
           </Button>
-          <Button variant="ghost" className="w-full justify-start gap-2 text-foreground">
-            <Home className="h-4 w-4" />
-            Funding
-          </Button>
-          <Button variant="ghost" className="w-full justify-start gap-2 text-foreground">
-            <Wallet className="h-4 w-4" />
-            Yield Vaults
-            <ChevronDown className="ml-auto h-4 w-4" />
-          </Button>
-          <Button variant="ghost" className="w-full justify-start gap-2 text-foreground">
+          <Button variant="ghost" className="w-full justify-start gap-2 text-foreground" onClick={() => window.location.href = 'mailto:andrew.ma@nyu.edu'}>
             <LifeBuoy className="h-4 w-4" />
             Support
           </Button>
-          <Button variant="ghost" className="w-full justify-start gap-2 text-foreground">
+          <Button variant="ghost" className="w-full justify-start gap-2 text-foreground" onClick={() => window.location.href = '/settings'}>
             <Settings className="h-4 w-4" />
             Settings
           </Button>
