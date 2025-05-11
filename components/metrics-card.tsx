@@ -379,7 +379,7 @@ export function MetricsCard({ title, value, companyName, change, chart }: Metric
       </Card>
 
       <Dialog open={showDetails} onOpenChange={setShowDetails}>
-        <DialogContent className="w-[800px] h-[600px] fixed top-[50%] left-[50%] translate-x-[-50%] translate-y-[-50%] p-6">
+        <DialogContent className="w-[800px] h-[400px] fixed top-[50%] left-[50%] translate-x-[-50%] translate-y-[-50%] p-6">
           <DialogHeader className="mb-4">
             <DialogTitle className="text-2xl font-bold">{companyName}</DialogTitle>
           </DialogHeader>
