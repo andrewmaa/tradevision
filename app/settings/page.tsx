@@ -70,10 +70,10 @@ export default function SettingsPage() {
                 <h3 className="font-semibold mb-2">API Providers</h3>
                 <ul className="space-y-2 text-sm text-muted-foreground">
                   <li>• Yahoo Finance - Financial data and market information</li>
-                  <li>• Alpha Vantage - Real-time and historical stock data</li>
+                  <li>• Alpha Vantage - Stock recommendations</li>
                   <li>• NewsAPI - News articles and sentiment analysis</li>
-                  <li>• Reddit API - Social media sentiment and engagement</li>
-                  <li>• OpenAI - ChatGPT for natural language processing</li>
+                  <li>• Reddit and Bluesky APIs - Social media sentiment and engagement</li>
+                  <li>• OpenAI - GPT-4o mini for keyword expansion</li>
                 </ul>
               </div>
 
