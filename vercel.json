@@ -1,8 +1,8 @@
 {
     "version": 2,
-    "buildCommand": "npm run build",
+    "buildCommand": "pnpm build",
     "devCommand": "npm run dev",
-    "installCommand": "npm install",
+    "installCommand": "pnpm install",
     "framework": "nextjs",
     "outputDirectory": ".next",
     "env": {
