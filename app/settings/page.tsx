@@ -60,7 +60,7 @@ export default function SettingsPage() {
                 <h3 className="font-semibold mb-2">Contributors</h3>
                 <ul className="space-y-2 text-sm text-muted-foreground">
                   <li>• Andrew Ma - Fullstack Developer</li>
-                  <li>• Kirsten Seto - UI/UX Designer</li>
+                  <li>• Kirsten Seto - Fullstack Developer</li>
                   <li>• Elisavet Perpatari - Backend Developer</li>
                   <li>• Esther Mizrachi - Backend Developer</li>
                   <li>• Terezia Juras - Backend Developer</li>

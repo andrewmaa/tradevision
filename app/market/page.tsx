@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Sidebar } from "@/components/sidebar";
@@ -80,6 +80,9 @@ export default function MarketPage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-2xl font-bold">Market Trends</CardTitle>
+            <CardDescription>
+              See the top trending stocks in the market. 
+            </CardDescription>
           </CardHeader>
           <CardContent>
             {loading ? (

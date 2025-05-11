@@ -170,46 +170,58 @@ export default function StockHeaderCard({
       <div className="bg-card/30 backdrop-blur-sm rounded-lg p-4">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div className="flex flex-wrap items-center gap-2 sm:gap-4">
-            <SettingsAwareTooltip content={
-              <div className="space-y-2">
-                <h4 className="text-sm font-semibold">Stock Ticker</h4>
-                <p className="text-sm text-muted-foreground">
-                  The unique symbol used to identify this stock on the market.
-                </p>
-              </div>
-            }>
+            {isDashboard ? (
               <span className="text-2xl sm:text-4xl font-bold tracking-tight break-all text-foreground">{ticker}</span>
-            </SettingsAwareTooltip>
+            ) : (
+              <SettingsAwareTooltip content={
+                <div className="space-y-2">
+                  <h4 className="text-sm font-semibold">Stock Ticker</h4>
+                  <p className="text-sm text-muted-foreground">
+                    The unique symbol used to identify this stock on the market.
+                  </p>
+                </div>
+              }>
+                <span className="text-2xl sm:text-4xl font-bold tracking-tight break-all text-foreground">{ticker}</span>
+              </SettingsAwareTooltip>
+            )}
             <p className="text-2xl sm:text-4xl font-bold tracking-tight text-foreground">–</p>
-            <SettingsAwareTooltip content={
-              <div className="space-y-2">
-                <h4 className="text-sm font-semibold">Current Price</h4>
-                <p className="text-sm text-muted-foreground">
-                  The latest trading price of the stock.
-                </p>
-              </div>
-            }>
-              {isRefreshing ? (
-                <div className="h-8 w-24 bg-muted animate-pulse rounded" />
-              ) : (
-                <span className="text-2xl sm:text-4xl font-bold tracking-tight text-foreground">${displayData.currentPrice.toFixed(2)}</span>
-              )}
-            </SettingsAwareTooltip>
+            {isDashboard ? (
+              <span className="text-2xl sm:text-4xl font-bold tracking-tight text-foreground">${displayData.currentPrice.toFixed(2)}</span>
+            ) : (
+              <SettingsAwareTooltip content={
+                <div className="space-y-2">
+                  <h4 className="text-sm font-semibold">Current Price</h4>
+                  <p className="text-sm text-muted-foreground">
+                    The latest trading price of the stock.
+                  </p>
+                </div>
+              }>
+                {isRefreshing ? (
+                  <div className="h-8 w-24 bg-muted animate-pulse rounded" />
+                ) : (
+                  <span className="text-2xl sm:text-4xl font-bold tracking-tight text-foreground">${displayData.currentPrice.toFixed(2)}</span>
+                )}
+              </SettingsAwareTooltip>
+            )}
 
-            <SettingsAwareTooltip content={
-              <div className="space-y-2">
-                <h4 className="text-sm font-semibold">Price Change</h4>
-                <p className="text-sm text-muted-foreground">
-                  The percentage change in stock price from the previous trading session.
-                </p>
-              </div>
-            }>
-              {isRefreshing ? (
-                <div className="h-6 w-16 bg-muted animate-pulse rounded" />
-              ) : (
-                <span className={`text-base sm:text-lg ${changeColor}`}>{changePrefix}{displayData.change.toFixed(2)}%</span>
-              )}
-            </SettingsAwareTooltip>
+            {isDashboard ? (
+              <span className={`text-base sm:text-lg ${changeColor}`}>{changePrefix}{displayData.change.toFixed(2)}%</span>
+            ) : (
+              <SettingsAwareTooltip content={
+                <div className="space-y-2">
+                  <h4 className="text-sm font-semibold">Price Change</h4>
+                  <p className="text-sm text-muted-foreground">
+                    The percentage change in stock price from the previous trading session.
+                  </p>
+                </div>
+              }>
+                {isRefreshing ? (
+                  <div className="h-6 w-16 bg-muted animate-pulse rounded" />
+                ) : (
+                  <span className={`text-base sm:text-lg ${changeColor}`}>{changePrefix}{displayData.change.toFixed(2)}%</span>
+                )}
+              </SettingsAwareTooltip>
+            )}
           </div>
 
           <div className="flex items-center gap-2">

@@ -6,13 +6,12 @@ import { Toaster } from "@/components/ui/sonner"
 import { SettingsProvider } from "@/contexts/settings-context"
 import { Metadata } from "next"
 import { BackgroundWrapper } from "@/components/background-wrapper"
-import { ClientLayout } from "./components/client-layout"
 
 const inter = Inter({ subsets: ["latin"] })
 
 export const metadata: Metadata = {
   title: 'TradeVision',
-  description: 'Visualize your trading strategies with interactive 3D models',
+  description: 'Your intelligent trading companion',
   icons: {
     icon: '/favicon.ico',
   },
@@ -38,9 +37,9 @@ export default function RootLayout({
         >
           <SettingsProvider>
             <BackgroundWrapper />
-            <ClientLayout>
+            <main className="relative z-10">
               {children}
-            </ClientLayout>
+            </main>
           </SettingsProvider>
           <Toaster />
         </ThemeProvider>

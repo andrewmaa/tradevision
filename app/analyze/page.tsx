@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input"
 import AnalyzeStock from "@/components/AnalyzeStock"
 import { useRouter, useSearchParams } from "next/navigation"
 import { motion, AnimatePresence } from "framer-motion"
+import Link from "next/link"
 
 export default function AnalyzePage() {
   const [searchValue, setSearchValue] = useState("")
@@ -84,7 +85,7 @@ export default function AnalyzePage() {
             >
               TradeVision
             </h1>
-            <p className="text-foreground/50 text-sm">Enter a ticker to analyze. For example, try AAPL, TSLA, or GOOGL!</p>
+            <p className="text-foreground/50 text-sm text-center">Enter a ticker to analyze. For example, try AAPL, TSLA, or GOOGL. Still stuck? Check out the <Link href="/market" className="text-blue-500 hover:underline">top stocks on the market</Link>!</p>
             <div className="flex justify-center px-4 py-4 gap-2 max-w-md">
               <Input 
                 placeholder="Search" 
