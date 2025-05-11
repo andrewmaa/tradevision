@@ -110,7 +110,7 @@ npm run build
 vercel --prod
 ```
 
-Do not deploy via push to Github– this will not work.
+
 ### Backend
 
 The Flask backend can be deployed to platforms like Heroku, Railway, or any other Python-supporting platform:
