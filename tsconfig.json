@@ -23,7 +23,9 @@
       }
     ],
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": [
+        "./*"
+      ]
     },
     "forceConsistentCasingInFileNames": true
   },
