@@ -111,7 +111,7 @@ export default function MarketPage() {
                   {trendingStocks.map((stock) => (
                     <TableRow 
                       key={stock.ticker}
-                      className="cursor-pointer hover:bg-gray-50 transition-colors"
+                      className="cursor-pointer hover:bg-muted/50 transition-colors"
                       onClick={() => handleStockClick(stock.ticker)}
                     >
                       <TableCell className="font-medium">{stock.ticker}</TableCell>

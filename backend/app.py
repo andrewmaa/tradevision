@@ -969,6 +969,8 @@ def parse_timestamp(timestamp_str):
     try:
         # If timestamp is already a datetime object, return it
         if isinstance(timestamp_str, (datetime, date)):
+            if timestamp_str.tzinfo is None:
+                return timestamp_str.replace(tzinfo=timezone.utc)
             return timestamp_str
             
         # Convert to string if it's not already
@@ -976,15 +978,20 @@ def parse_timestamp(timestamp_str):
             timestamp_str = str(timestamp_str)
             
         # Try parsing as ISO format first
-        return datetime.fromisoformat(timestamp_str)
+        parsed_time = datetime.fromisoformat(timestamp_str)
+        if parsed_time.tzinfo is None:
+            parsed_time = parsed_time.replace(tzinfo=timezone.utc)
+        return parsed_time
     except ValueError:
         try:
             # Try parsing as MySQL datetime format
-            return datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S')
+            parsed_time = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S')
+            return parsed_time.replace(tzinfo=timezone.utc)
         except ValueError:
             try:
                 # Try parsing as MySQL datetime with microseconds
-                return datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S.%f')
+                parsed_time = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S.%f')
+                return parsed_time.replace(tzinfo=timezone.utc)
             except ValueError:
                 logger.error(f"Could not parse timestamp: {timestamp_str}")
                 return None
@@ -1012,6 +1019,8 @@ def run_pipeline(ticker, force_refresh=False):
             # Check if cache is still valid (less than 1 hour old)
             cache_age = now_utc - last_run_time
             cache_age_hours = cache_age.total_seconds() / 3600
+            logger.info(f"Current time (UTC): {now_utc.isoformat()}")
+            logger.info(f"Last run time (UTC): {last_run_time.isoformat()}")
             logger.info(f"Cache age: {cache_age_hours:.2f} hours")
             
             if cache_age < timedelta(hours=1):
@@ -1321,6 +1330,8 @@ def analyze():
                         # Check if cache is still valid (less than 1 hour old)
                         cache_age = now_utc - last_run_time
                         cache_age_hours = cache_age.total_seconds() / 3600
+                        logger.info(f"Current time (UTC): {now_utc.isoformat()}")
+                        logger.info(f"Last run time (UTC): {last_run_time.isoformat()}")
                         logger.info(f"Cache age: {cache_age_hours:.2f} hours")
                         
                         if cache_age < timedelta(hours=1):
