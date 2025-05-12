@@ -379,12 +379,12 @@ export function MetricsCard({ title, value, companyName, change, chart }: Metric
       </Card>
 
       <Dialog open={showDetails} onOpenChange={setShowDetails}>
-        <DialogContent className="w-[800px] h-[400px] fixed top-[50%] left-[50%] translate-x-[-50%] translate-y-[-50%] p-6">
+        <DialogContent className="max-w-[900px] w-[90vw] max-h-[90vh]">
           <DialogHeader className="mb-4">
             <DialogTitle className="text-2xl font-bold">{companyName}</DialogTitle>
           </DialogHeader>
           
-          <div className="h-[calc(100%-5rem)] overflow-y-auto">
+          <div className="overflow-y-auto">
             {loading ? (
               <div className="flex items-center justify-center p-8">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
