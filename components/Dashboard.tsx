@@ -196,7 +196,7 @@ export default function Dashboard() {
                 onClick={() => removeStock(stock)}
                 className="h-6 w-6 p-0 absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-10"
               >
-                <X className="h-4 w-4" />
+                <X className="h-4 w-4 text-muted-foreground" />
               </Button>
               <MetricsCard
                 title={stock}
