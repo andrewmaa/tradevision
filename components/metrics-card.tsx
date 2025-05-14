@@ -220,7 +220,7 @@ function ScoreCircle({ score }: { score: number }) {
           </svg>
         </div>
       </HoverCardTrigger>
-      <HoverCardContent className="w-80">
+      <HoverCardContent className="z-[9999] w-80">
         <div className="space-y-2">
           <h4 className="text-sm font-semibold">Hype Index Score: {Math.round(animatedScore)}</h4>
           <p className="text-sm text-muted-foreground">

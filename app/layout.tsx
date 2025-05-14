@@ -6,6 +6,7 @@ import { Toaster } from "@/components/ui/sonner"
 import { SettingsProvider } from "@/contexts/settings-context"
 import { Metadata } from "next"
 import { BackgroundWrapper } from "@/components/background-wrapper"
+import { Analytics } from "@vercel/analytics/next"
 
 const inter = Inter({ subsets: ["latin"] })
 
@@ -44,6 +45,7 @@ export default function RootLayout({
           <Toaster />
         </ThemeProvider>
       </body>
+      <Analytics />
     </html>
   )
 }
