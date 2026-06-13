@@ -4,6 +4,7 @@ import sys
 import json
 import tempfile
 import logging
+import traceback
 from io import StringIO
 from datetime import date, datetime, timedelta, timezone
 from dateutil import parser
@@ -22,6 +23,7 @@ from dotenv import load_dotenv
 from flask import Flask, request, jsonify, make_response, Response, stream_with_context
 from flask_cors import CORS
 from sqlalchemy import create_engine, text
+from sqlalchemy.dialects.mysql import LONGTEXT
 from curl_cffi import requests as curl_requests
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 import yfinance as yf
@@ -76,21 +78,32 @@ reddit_client_id = os.environ.get("REDDIT_CLIENT_ID")
 reddit_client_secret = os.environ.get("REDDIT_CLIENT_SECRET")
 reddit_user_agent = os.environ.get("REDDIT_USER_AGENT")
 alpha_vantage_api_key = os.environ.get("ALPHA_VANTAGE_API_KEY")
+sql_password = os.environ.get("SQL_PASSWORD")
+sql_user = os.environ.get("SQL_USER", "root")
+sql_host = os.environ.get("SQL_HOST")
+sql_port = os.environ.get("SQL_PORT", "3306")
+sql_db = os.environ.get("SQL_DATABASE")
+database_url = os.environ.get("DATABASE_URL") or os.environ.get("MYSQL_URL") or os.environ.get("MYSQL_PUBLIC_URL")
 
 try:
-    # Use pymysql explicitly in the connection string
-    conn_string = 'mysql+pymysql://{user}:{password}@{host}:{port}/{db}?charset=utf8mb4'.format(
-        user='TradeVision',
-        password='ySozy+aJMDsFZtgReErw8A==',
-        host='jsedocc7.scrc.nyu.edu',
-        port=3306,
-        db='TradeVision'
-    )
+    # Prefer DATABASE_URL (Railway provides this), fallback to parts.
+    if database_url:
+        conn_string = database_url
+    else:
+        conn_string = (
+            "mysql+pymysql://{user}:{password}@{host}:{port}/{db}?charset=utf8mb4"
+        ).format(
+            user=sql_user,
+            password=sql_password,
+            host=sql_host,
+            port=int(sql_port),
+            db=sql_db,
+        )
     engine = create_engine(conn_string, pool_recycle=3600)
-    
+
     # Test the connection
     with engine.connect() as connection:
-        result = connection.execute(text("SELECT 1"))
+        connection.execute(text("SELECT 1"))
         logger.info("Database connection successful!")
 except Exception as e:
     logger.error(f"Error connecting to database: {e}")
@@ -996,18 +1009,56 @@ def parse_timestamp(timestamp_str):
                 logger.error(f"Could not parse timestamp: {timestamp_str}")
                 return None
 
+def table_exists(conn, table_name):
+    """Check if a table exists in the current database"""
+    result = conn.execute(
+        text(
+            """
+            SELECT COUNT(*)
+            FROM information_schema.tables
+            WHERE table_schema = DATABASE()
+            AND table_name = :table_name
+            """
+        ),
+        {"table_name": table_name},
+    ).scalar()
+    return bool(result)
+
+def longtext_dtype_map(df):
+    """Map object columns to LONGTEXT for MySQL JSON/text payloads."""
+    return {col: LONGTEXT() for col in df.columns if df[col].dtype == object}
+
 def run_pipeline(ticker, force_refresh=False):
 
     """Run complete analysis pipeline and print results at each step"""
     now_utc = datetime.now(timezone.utc)
 
     # Step 0: Check last run from `data` table
+    if engine is None:
+        logger.error("Database engine unavailable; cannot run pipeline.")
+        yield send_sse_message({
+            "step": "database",
+            "status": "error",
+            "message": "Database not configured. Set DATABASE_URL and retry."
+        })
+        return
+
     with engine.connect() as conn:
+        result = None
+        if not table_exists(conn, "data"):
+            logger.info("Cache table missing; running pipeline without cache.")
+            yield send_sse_message({
+                "step": "cache",
+                "status": "info",
+                "message": "Cache table missing, running pipeline."
+            })
+        else:
+            result = conn.execute(
+                text("SELECT last_run FROM data WHERE `company_info.ticker` = :ticker ORDER BY last_run DESC LIMIT 1"),
+                {"ticker": ticker}
+            ).fetchone()
+
         print("Checking cache")
-        result = conn.execute(
-            text("SELECT last_run FROM data WHERE `company_info.ticker` = :ticker ORDER BY last_run DESC LIMIT 1"),
-            {"ticker": ticker}
-        ).fetchone()
 
         if result and result[0] and not force_refresh:
             last_run_time = result[0]
@@ -1151,9 +1202,10 @@ def run_pipeline(ticker, force_refresh=False):
 
         with engine.begin() as conn:
             # Delete old data for this ticker
-            conn.execute(text("DELETE FROM data WHERE `company_info.ticker` = :ticker"), {"ticker": ticker})
+            if table_exists(conn, "data"):
+                conn.execute(text("DELETE FROM data WHERE `company_info.ticker` = :ticker"), {"ticker": ticker})
             # Insert new data
-            df_flat.to_sql("data", con=conn, if_exists="append", index=False)
+            df_flat.to_sql("data", con=conn, if_exists="append", index=False, dtype=longtext_dtype_map(df_flat))
             # Return the original res object instead of querying the database again
             return res
     except Exception as e:
@@ -1298,17 +1350,35 @@ def analyze():
 
         def generate():
             try:
+                if engine is None:
+                    logger.error("Database engine unavailable; skipping cache and pipeline.")
+                    yield send_sse_message({
+                        "step": "database",
+                        "status": "error",
+                        "message": "Database not configured. Set DATABASE_URL and retry."
+                    })
+                    return
+
                 # Check cache first
                 now_utc = datetime.now(timezone.utc)
                 logger.info(f"Current UTC time: {now_utc.isoformat()}")
                 
                 with engine.connect() as conn:
-                    # Debug: Print the SQL query
-                    query = text("SELECT last_run FROM data WHERE `company_info.ticker` = :ticker ORDER BY last_run DESC LIMIT 1")
-                    logger.info(f"Executing cache check query for ticker: {ticker}")
-                    
-                    result = conn.execute(query, {"ticker": ticker}).fetchone()
-                    logger.info(f"Cache check result: {result}")
+                    result = None
+                    if table_exists(conn, "data"):
+                        # Debug: Print the SQL query
+                        query = text("SELECT last_run FROM data WHERE `company_info.ticker` = :ticker ORDER BY last_run DESC LIMIT 1")
+                        logger.info(f"Executing cache check query for ticker: {ticker}")
+                        
+                        result = conn.execute(query, {"ticker": ticker}).fetchone()
+                        logger.info(f"Cache check result: {result}")
+                    else:
+                        logger.info("Cache table missing; running pipeline without cache.")
+                        yield send_sse_message({
+                            "step": "cache",
+                            "status": "info",
+                            "message": "Cache table missing, running pipeline."
+                        })
 
                     # If force refresh is requested, skip cache check and run pipeline
                     if force_refresh:
@@ -1470,8 +1540,9 @@ def analyze():
                         df_flat = pd.DataFrame([flattened])
 
                         with engine.begin() as conn:
-                            conn.execute(text("DELETE FROM data WHERE `company_info.ticker` = :ticker"), {"ticker": ticker})
-                            df_flat.to_sql("data", con=conn, if_exists="append", index=False)
+                            if table_exists(conn, "data"):
+                                conn.execute(text("DELETE FROM data WHERE `company_info.ticker` = :ticker"), {"ticker": ticker})
+                            df_flat.to_sql("data", con=conn, if_exists="append", index=False, dtype=longtext_dtype_map(df_flat))
                             yield send_sse_message({"step": "complete", "status": "success", "data": res})
                     except Exception as e:
                         error_msg = f"Error in data processing: {str(e)}"
@@ -1612,6 +1683,9 @@ def get_trending_stocks():
 
 def init_market_trends_table():
     """Initialize the market_trends table if it doesn't exist"""
+    if engine is None:
+        logger.warning("Database engine unavailable; skipping market_trends init.")
+        return
     try:
         with engine.connect() as conn:
             # Check if table exists
